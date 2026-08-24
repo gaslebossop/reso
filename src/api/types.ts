@@ -2,6 +2,38 @@ export type Artist = {
   id: number;
   name: string;
   picture: string;
+  /**
+   * Nombre d'abonnes Deezer. Ecarte les coquilles vides du catalogue —
+   * doublons de distributeurs et fiches homonymes sans rien dedans, qui en
+   * ont une poignee la ou le vrai artiste en a des milliers.
+   *
+   * Absent des artistes qui ne viennent pas d'une recherche.
+   */
+  fans?: number;
+  /**
+   * Deux titres phares, pour reconnaitre l'artiste.
+   *
+   * Le nombre de fans ne suffit pas a trancher entre deux artistes tres
+   * connus qui se disputent la meme requete — « PNL » remonte Pink Floyd, et
+   * les deux ont des millions d'abonnes. On reconnait un artiste a ce qu'il a
+   * fait, pas a sa notoriete.
+   *
+   * Rendu par `/search/artists` seulement, et vide quand Deezer ne connait
+   * aucun titre — ce qui est justement le signe d'une fiche creuse.
+   */
+  titres?: string[];
+  /**
+   * C'est la fiche principale pour ce nom.
+   *
+   * **Deezer n'expose aucune certification** : ce drapeau ne dit pas « compte
+   * verifie », il dit « parmi les fiches qui portent ce nom, c'est celle-la
+   * la vraie ». Le moteur ne le leve que sans ambiguite — la fiche doit
+   * ecraser ses homonymes d'un facteur dix en abonnes ET avoir des titres.
+   *
+   * Aucune fiche ne le porte quand le doute subsiste : un badge qui se trompe
+   * est pire que pas de badge, puisqu'on cesse alors de lire les titres.
+   */
+  principal?: boolean;
 };
 
 export type Track = {
@@ -61,6 +93,18 @@ export type Card = {
   };
   /** Phrase courte affichee sur la carte : pourquoi ce titre arrive. */
   reason: string;
+  /**
+   * L'artiste principal est deja suivi.
+   *
+   * Porte par la carte et non recupere a part : le bouton doit etre dans le
+   * bon etat des la premiere image. Une liste chargee de son cote le ferait
+   * basculer sous les yeux une fraction de seconde apres, et un bouton qui
+   * change tout seul se lit comme un appui qu'on n'a pas fait.
+   *
+   * Optionnel : un moteur anterieur au suivi ne l'envoie pas, et l'absence
+   * doit valoir « pas suivi » plutot que casser la carte.
+   */
+  followed?: boolean;
 };
 
 export type SwipeAction = 'like' | 'skip' | 'save' | 'block';
@@ -193,6 +237,17 @@ export type ProfilSocial = {
   commun_total: number;
   /** Les artistes les plus aimes, du plus consensuel au plus personnel. */
   artistes: { name: string; count: number }[];
+  /**
+   * Les artistes que ce compte a choisi de suivre, du plus recent au plus
+   * ancien, plafonnes a douze cote moteur.
+   *
+   * Fiches completes, contrairement a `artistes` qui n'a que des noms : cette
+   * section-la porte des portraits.
+   *
+   * Optionnel : un moteur anterieur au suivi ne l'envoie pas, et l'absence
+   * doit valoir « rien a montrer » plutot que casser l'ecran.
+   */
+  suivis?: Artist[];
 };
 
 /** Un nouvel abonne, ou un titre qu'on t'a repris. Le moteur n'en invente pas

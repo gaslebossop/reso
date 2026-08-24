@@ -1,6 +1,7 @@
 import { Image } from 'expo-image';
 import { memo, useEffect, useRef } from 'react';
 import {
+  Pressable,
   StyleSheet,
   Text,
   View,
@@ -17,6 +18,7 @@ import Animated, {
   useReducedMotion,
   useSharedValue,
   withDelay,
+  type SharedValue,
   withSequence,
   withSpring,
   withTiming,
@@ -26,7 +28,8 @@ import { scheduleOnRN } from 'react-native-worklets';
 import { ligneInterpretes, separerTitre } from '../api/titre';
 import type { Card } from '../api/types';
 import { color, motion, radius, space, type } from '../theme/tokens';
-import { IconeCoeur, IconeCroix, IconeGarder } from './Icones';
+import { IconeCoche, IconeCoeur, IconeCroix, IconeGarder, IconePlus } from './Icones';
+import { vibrer } from '../state/vibration';
 
 export type Verdict = 'like' | 'skip' | 'save';
 
@@ -191,6 +194,21 @@ type Props = {
   annonce?: boolean;
   /** Appui long : on demande a ne plus jamais voir cet artiste. */
   onDemandeBannir: () => void;
+  /**
+   * L'artiste principal est suivi.
+   *
+   * Pilote par l'ecran et non par un etat local a la carte : un meme artiste
+   * peut occuper deux cartes de la pile, et elles doivent basculer ensemble.
+   * Un etat par carte aurait laisse la seconde afficher le contraire de la
+   * premiere jusqu'au prochain lot.
+   */
+  suivi: boolean;
+  /**
+   * Suivre / ne plus suivre. L'ecran bascule tout de suite et appelle le
+   * moteur ensuite : voir [[Suivre]] pour pourquoi l'optimisme est ici la
+   * bonne reponse et pas un raccourci.
+   */
+  onSuivre: (on: boolean) => void;
 };
 
 function PassageImpl({
@@ -205,6 +223,8 @@ function PassageImpl({
   onSurprise,
   annonce,
   onDemandeBannir,
+  suivi,
+  onSuivre,
 }: Props) {
   const { width, height } = useWindowDimensions();
   const reduced = useReducedMotion();
@@ -219,6 +239,20 @@ function PassageImpl({
   /** La bouffee de couleur du verdict, au relachement. */
   const eclatAime = useSharedValue(0);
   const eclatGarde = useSharedValue(0);
+  /**
+   * 1 tant qu'un doigt est pose sur le bouton « suivre ».
+   *
+   * Le bouton est un enfant de la carte, donc l'appui long de la carte — qui
+   * demande a bannir l'artiste au bout de 600 ms — le voit passer comme
+   * n'importe quel autre appui. Sans ce drapeau, un appui un peu lent sur
+   * « suivre » ouvrait la demande de bannissement : le geste le plus
+   * destructeur de l'app declenche par le plus anodin, et pile sur le meme
+   * artiste.
+   *
+   * Une valeur partagee et non une `ref` : `onStart` est un worklet, il
+   * s'execute sur le fil d'animation et n'a pas acces aux refs React.
+   */
+  const surBouton = useSharedValue(0);
 
   const threshold = width * DISTANCE_RATIO;
   const cadre = cadreCarte(largeurScene, hauteurScene);
@@ -388,6 +422,8 @@ function PassageImpl({
     .enabled(active)
     .minDuration(600)
     .onStart(() => {
+      // Le doigt est sur « suivre » : cet appui-la ne s'adresse pas a la carte.
+      if (surBouton.get() === 1) return;
       scheduleOnRN(onDemandeBannir);
     });
 
@@ -515,12 +551,31 @@ function PassageImpl({
             >
               {titre}
             </Text>
-            <Text
-              style={[styles.interpretes, cadre.compact && styles.interpretesCompact]}
-              numberOfLines={1}
-            >
-              {ligneInterpretes(card.track.artist.name, avec)}
-            </Text>
+            {/* Le nom, puis le bouton — et surtout pas l'inverse. Le bouton
+                pose avant volerait la premiere chose lue de la ligne, qui est
+                l'artiste. `flexShrink` sur le texte seul : c'est le nom qui
+                se tronque quand il est long, jamais le bouton qui sort de la
+                carte. */}
+            <View style={[styles.ligneArtiste, cadre.compact && styles.ligneArtisteCompacte]}>
+              <Text
+                style={[
+                  styles.interpretes,
+                  cadre.compact && styles.interpretesCompact,
+                  styles.interpretesFlex,
+                ]}
+                numberOfLines={1}
+              >
+                {ligneInterpretes(card.track.artist.name, avec)}
+              </Text>
+              <Suivre
+                actif={active}
+                suivi={suivi}
+                nom={card.track.artist.name}
+                taille={cadre.compact ? 18 : 22}
+                onBascule={() => onSuivre(!suivi)}
+                surBouton={surBouton}
+              />
+            </View>
           </Animated.View>
         </View>
 
@@ -593,6 +648,127 @@ function avancement(p: number) {
   };
 }
 
+/**
+ * Suivre l'artiste, sans sortir du fil.
+ *
+ * ## Ce qui aurait casse l'immersion, et qui a ete ecarte
+ *
+ * Le fil n'a que trois issues — passer, j'aime, garder — et chacune fait
+ * partir la carte. Un quatrieme geste qui, lui, ne la fait PAS partir est
+ * exactement l'endroit ou l'on brise le rythme si on le traite comme les
+ * autres. D'ou ce qu'il ne fait pas :
+ *
+ *  - **aucun mot.** « Suivre » / « Suivi » ecrit en toutes lettres double la
+ *    largeur du bouton selon l'etat, donc la ligne de l'artiste se recompose
+ *    sous les yeux a chaque appui. Une forme qui reste a sa place et change
+ *    de dessin ne bouge rien autour d'elle ;
+ *  - **aucun toast, aucune modale, aucune navigation.** Rien ne recouvre la
+ *    carte, rien ne demande de revenir. Le seul retour est le bouton lui-meme
+ *    et une impulsion haptique legere ;
+ *  - **aucune confirmation pour se retirer.** Ne plus suivre n'efface rien :
+ *    c'est un geste sans consequence, il merite un geste sans ceremonie —
+ *    la meme regle que sur le profil d'une personne ;
+ *  - **aucun changement de hauteur.** Le bouton est plus petit que la ligne
+ *    qui le porte, et sa zone tactile est etendue par `hitSlop`, qui ne
+ *    participe pas a la mise en page. Le cartel a une hauteur fixe, et une
+ *    carte qui grandirait d'un pixel ferait respirer toute la pile.
+ *
+ * ## Pourquoi le geste ne vole rien au swipe
+ *
+ * Le `Pressable` est un enfant du `GestureDetector` de la carte. Le pan de
+ * la carte ne s'active qu'au mouvement : un doigt pose et releve au meme
+ * endroit ne l'arme jamais, l'appui va donc au bouton. Des que le doigt
+ * derive, le pan prend la main et le `Pressable` est annule par le systeme
+ * tactile — la carte part, sans suivre l'artiste au passage.
+ *
+ * ## L'optimisme n'est pas un raccourci
+ *
+ * Le bouton bascule avant la reponse du moteur. C'est la bonne reponse ici et
+ * pas une facilite : attendre l'aller-retour, c'est un bouton inerte pendant
+ * une demi-seconde au milieu d'un geste qui, lui, est instantane — et sur un
+ * reseau mobile, la carte est deja partie quand la reponse arrive. La route
+ * est idempotente cote moteur, donc un doublon ne coute rien, et l'ecran
+ * remet le bouton dans son etat d'avant si l'appel echoue.
+ */
+function Suivre({
+  actif,
+  suivi,
+  nom,
+  taille,
+  onBascule,
+  surBouton,
+}: {
+  actif: boolean;
+  suivi: boolean;
+  nom: string;
+  taille: number;
+  onBascule: () => void;
+  /** Leve tant que le doigt est pose ici : voir sa declaration dans la carte. */
+  surBouton: SharedValue<number>;
+}) {
+  const echelle = useSharedValue(1);
+  const reduced = useReducedMotion();
+
+  const style = useAnimatedStyle(() => ({ transform: [{ scale: echelle.get() }] }));
+
+  const appuyer = () => {
+    // L'haptique la plus legere de la palette : `action`, celle des boutons.
+    // Le verdict d'un swipe a la sienne, plus lourde, et les deux ne doivent
+    // pas se confondre — suivre n'est pas juger.
+    vibrer.action();
+    if (!reduced) {
+      // Pas de ressort : la feuille de style de cette app n'en veut aucun qui
+      // rebondisse, et un bouton qui tressaute apres un appui appelle l'oeil
+      // pile au moment ou l'on veut qu'il retourne a la pochette.
+      echelle.set(
+        withSequence(
+          withTiming(0.82, { duration: motion.press / 2 }),
+          withTiming(1, { duration: motion.state }),
+        ),
+      );
+    }
+    onBascule();
+  };
+
+  const teinte = suivi ? color.accent : color.textMuted;
+
+  return (
+    <Animated.View style={style}>
+      <Pressable
+        onPress={appuyer}
+        // `onPressIn` part des la pression, donc bien avant les 600 ms de
+        // l'appui long : le drapeau est toujours leve a temps.
+        onPressIn={() => surBouton.set(1)}
+        onPressOut={() => surBouton.set(0)}
+        disabled={!actif}
+        // La zone tactile reelle fait une quarantaine de points de cote alors
+        // que le dessin en fait vingt-deux : `hitSlop` deborde sans occuper
+        // de place, donc sans toucher a la hauteur du cartel.
+        hitSlop={12}
+        accessibilityRole="switch"
+        accessibilityState={{ checked: suivi }}
+        accessibilityLabel={suivi ? `Ne plus suivre ${nom}` : `Suivre ${nom}`}
+        style={({ pressed }) => [
+          styles.suivre,
+          {
+            width: taille,
+            height: taille,
+            borderColor: suivi ? color.accent : 'rgba(255, 255, 255, 0.26)',
+            backgroundColor: suivi ? 'rgba(255, 255, 255, 0.06)' : 'transparent',
+            opacity: pressed ? 0.6 : 1,
+          },
+        ]}
+      >
+        {suivi ? (
+          <IconeCoche couleur={teinte} taille={Math.round(taille * 0.64)} />
+        ) : (
+          <IconePlus couleur={teinte} taille={Math.round(taille * 0.64)} />
+        )}
+      </Pressable>
+    </Animated.View>
+  );
+}
+
 export const Passage = memo(PassageImpl);
 
 const styles = StyleSheet.create({
@@ -613,6 +789,18 @@ const styles = StyleSheet.create({
   titre: { fontWeight: '700', color: color.text, letterSpacing: -0.5 },
   interpretes: { ...type.body, color: color.textMuted },
   interpretesCompact: { fontSize: 13, lineHeight: 18 },
+  // Le nom se tronque, le bouton jamais : c'est `flexShrink` sur le seul
+  // texte qui l'obtient. Sans lui, un nom long pousse le bouton hors de la
+  // carte au lieu de s'abreger.
+  interpretesFlex: { flexShrink: 1 },
+  ligneArtiste: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  ligneArtisteCompacte: { gap: space.xs },
+  suivre: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.full,
+    borderWidth: 1,
+  },
 
   voeu: { alignItems: 'center', justifyContent: 'center' },
   teinture: { opacity: 0.26 },

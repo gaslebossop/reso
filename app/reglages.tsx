@@ -11,7 +11,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { prisme } from '../src/api/client';
-import { autoriser, etatSpotify, isSpotifyConfigured, oublierSpotify } from '../src/auth/spotify';
+import { autoriser, etatSpotify, importTaste, isSpotifyConfigured, oublierSpotify } from '../src/auth/spotify';
 import { oublierSync } from '../src/state/spotifySync';
 import type { Artist, Prefs } from '../src/api/types';
 import { IconeChevron, IconeRetour } from '../src/components/Icones';
@@ -172,6 +172,9 @@ export default function Reglages() {
   const [plate, setPlate] = useState<IdPlateforme>('rien');
   const [ouvrePlate, setOuvrePlate] = useState(false);
   const [spot, setSpot] = useState({ relie: false, peutEcrire: false, peutPlaylist: false });
+  /** L'import Spotify en cours, et ce qu'il a donne. */
+  const [importe, setImporte] = useState(false);
+  const [ditImport, setDitImport] = useState<string | null>(null);
   /** Le moteur ignore `/prefs` : les trois intentions n'ont plus de sens. */
   const [sansPrefs, setSansPrefs] = useState(false);
 
@@ -216,26 +219,75 @@ export default function Reglages() {
   }, []);
 
   /**
+   * Reprendre ce qu'on ecoute sur Spotify, **apres** l'inscription.
+   *
+   * C'est le trou qu'il fallait boucher : l'import n'existait qu'au demarrage,
+   * sur `app/plateforme.tsx`. Quelqu'un qui s'etait inscrit en choisissant six
+   * artistes a la main, puis reliait Spotify ici, voyait sa liaison se poser
+   * sans qu'un seul titre soit lu — le bouton ne servait qu'a **ecrire** chez
+   * Spotify. Rien ne le disait, et rien ne permettait de s'en sortir.
+   *
+   * L'import remplace le precedent import Spotify au lieu de s'y ajouter
+   * (`remplace`), et ne touche jamais aux artistes choisis a la main.
+   */
+  const importerSpotify = useCallback(async () => {
+    vibrer.action();
+    setImporte(true);
+    setDitImport(null);
+    try {
+      const gout = await importTaste();
+      // Fenetre fermee : ce n'est pas une erreur, et il n'y a rien a dire.
+      if (!gout) return;
+      if (gout.artists.length === 0) {
+        setDitImport('Spotify n’a renvoyé aucun artiste écouté.');
+        return;
+      }
+      const r = await prisme.seed({ artists: gout.artists, source: 'spotify', remplace: true });
+      // Le chiffre annonce est celui que le moteur a **retenu**, pas celui
+      // qu'on lui a envoye : un artiste sans voisin chez Deezer est ecarte, et
+      // promettre 45 ancres quand il en reste 40 serait faux.
+      setDitImport(`${r.anchors} artistes repris de Spotify.`);
+      // Le bloc « Ton gout » montre les ancres : il vient de changer.
+      prisme.anchors().then((x) => setAncres(x.artists)).catch(() => {});
+    } catch (e) {
+      setDitImport(e instanceof Error ? e.message : 'Import impossible');
+    } finally {
+      setImporte(false);
+      setSpot(await etatSpotify());
+    }
+  }, []);
+
+  /**
    * Refaire l'autorisation Spotify.
    *
    * Ce n'est pas une commodite : la portee d'ecriture a ete ajoutee apres que
    * des jetons ont ete ranges sur le telephone, et **rien n'elargit un jeton
    * apres coup**. Sans ce bouton, un ajout aux titres likes echouait en 403
    * sans aucun moyen de s'en sortir depuis l'app.
+   *
+   * **Une premiere liaison enchaine sur l'import.** Relier Spotify veut dire
+   * « prends ce que j'ecoute » : le faire en deux gestes separes laissait le
+   * premier sans effet visible. Elargir une liaison qui existe deja, en
+   * revanche, ne relit rien — c'est une reparation de permission, pas une
+   * arrivee, et l'import reste a un appui de la.
    */
   const reconnecterSpotify = useCallback(async () => {
     vibrer.action();
+    const premiereFois = !spot.relie;
     try {
       await autoriser();
     } catch {
       // Le message utile est deja passe dans la console ; ici on se contente
       // de relire l'etat, qui dira si ca a pris.
     }
-    setSpot(await etatSpotify());
-  }, []);
+    const etat = await etatSpotify();
+    setSpot(etat);
+    if (premiereFois && etat.relie) await importerSpotify();
+  }, [spot.relie, importerSpotify]);
 
   const delierSpotify = useCallback(async () => {
     vibrer.action();
+    setDitImport(null);
     await oublierSpotify();
     // La synchronisation continue appartenait a cette liaison : la laisser
     // allumee ferait accumuler une file qui ne partira jamais.
@@ -414,9 +466,23 @@ export default function Reglages() {
         {montrerSpotify && !spot.relie ? (
           <Rang
             titre="Connecter Spotify"
-            sous="Pour retrouver tes gardés dans tes titres likés."
+            sous="Reprend ce que tu écoutes, et retrouve tes gardés dans tes titres likés."
             accent
+            occupe={importe}
             onPress={reconnecterSpotify}
+          />
+        ) : null}
+        {/* L'import, a part et refaisable. Ce qu'on ecoute bouge ; le gout de
+            depart, lui, restait fige au jour de l'inscription. */}
+        {montrerSpotify && spot.relie ? (
+          <Rang
+            titre="Reprendre mes goûts Spotify"
+            sous={
+              ditImport ??
+              'Titres likés, artistes suivis, playlists et albums enregistrés. Remplace l’import précédent.'
+            }
+            occupe={importe}
+            onPress={importerSpotify}
           />
         ) : null}
         {montrerSpotify && spot.relie && !spot.peutEcrire ? (

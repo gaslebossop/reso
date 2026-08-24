@@ -24,6 +24,7 @@ import Animated, {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { prisme } from '../../src/api/client';
 import type { Card, SwipeAction } from '../../src/api/types';
 import { player } from '../../src/audio/player';
 import { Barre } from '../../src/components/Barre';
@@ -374,6 +375,46 @@ export default function FilScreen() {
   }, []);
 
   /**
+   * Les artistes suivis, tels que CET ecran les connait.
+   *
+   * Une carte arrive du moteur avec son `followed`, qui est juste au moment
+   * ou le lot a ete servi. Ce qu'il ne peut pas savoir, c'est ce qu'on vient
+   * d'appuyer : cette table-la porte les basculements faits depuis, et elle
+   * prime sur la carte.
+   *
+   * Elle vit dans l'ecran et pas dans la carte parce qu'un meme artiste peut
+   * occuper deux cartes de la pile — deux titres d'un artiste ramenes par le
+   * meme lot. Un etat par carte aurait laisse la seconde afficher le
+   * contraire de la premiere jusqu'au lot suivant.
+   */
+  const [suivisLocaux, setSuivisLocaux] = useState<Record<number, boolean>>({});
+
+  const estSuivi = useCallback(
+    (c: Card) => suivisLocaux[c.track.artist.id] ?? !!c.followed,
+    [suivisLocaux],
+  );
+
+  /**
+   * Suivre / ne plus suivre, sans faire attendre le doigt.
+   *
+   * On bascule d'abord et on appelle ensuite. Attendre la reponse, c'est un
+   * bouton inerte une demi-seconde au milieu d'un ecran ou tout le reste est
+   * instantane — et sur un reseau mobile, la carte est souvent deja partie
+   * quand elle arrive.
+   *
+   * En cas d'echec on revient a l'etat d'avant, en silence. Pas de message :
+   * suivre est un geste mineur, et une alerte modale par-dessus le fil
+   * couterait plus d'immersion que le suivi n'en valait. Le bouton qui reprend
+   * sa forme dit deja que ca n'a pas pris.
+   */
+  const suivre = useCallback((artistId: number, on: boolean) => {
+    setSuivisLocaux((s) => ({ ...s, [artistId]: on }));
+    prisme.suivreArtiste(artistId, on).catch(() => {
+      setSuivisLocaux((s) => ({ ...s, [artistId]: !on }));
+    });
+  }, []);
+
+  /**
    * Le vol part de la pochette elle-meme.
    *
    * La geometrie vient de `cadreCarte`, la meme fonction que la carte utilise
@@ -453,6 +494,8 @@ export default function FilScreen() {
                 onSeuil={onSeuil}
                 onSurprise={onSurprise}
                 onDemandeBannir={demanderBannir}
+                suivi={estSuivi(card)}
+                onSuivre={(on) => suivre(card.track.artist.id, on)}
               />
             ))
         ) : (

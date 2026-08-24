@@ -130,7 +130,10 @@ export default function ChoixPlateforme() {
           router.push('/onboarding');
           return;
         }
-        await prisme.seed({ artists: gout.artists });
+        // Marque et remplacante des le premier import : c'est ce qui permet
+        // de le refaire plus tard depuis les reglages sans empiler deux
+        // lectures de Spotify dans le meme gout.
+        await prisme.seed({ artists: gout.artists, source: 'spotify', remplace: true });
         // Le gout est amorce : l'ecran des artistes n'a plus rien a demander.
         // A sa place, on demande dans quels styles creuser en premier — la
         // seule question que l'import laisse ouverte.

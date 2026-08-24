@@ -285,6 +285,81 @@ export function IconeGarder({ couleur, taille = GRILLE }: { couleur: string; tai
 }
 
 /**
+ * Suivre : le plus. Meme grille et meme trait que la croix, dont il est le
+ * jumeau tourne d'un huitieme de tour — c'est ce qui les rend d'un poids
+ * optique identique cote a cote dans un cartel.
+ */
+export function IconePlus({ couleur, taille = GRILLE }: { couleur: string; taille?: number }) {
+  return (
+    <Cadre taille={taille}>
+      <Path
+        d="M12 6 L12 18 M6 12 L18 12"
+        fill="none"
+        stroke={couleur}
+        strokeWidth={2}
+        strokeLinecap="round"
+      />
+    </Cadre>
+  );
+}
+
+/**
+ * Deja suivi : la coche.
+ *
+ * Deliberement pas un « moins » ni une croix, bien que le geste retire.
+ * Un bouton doit dire l'etat ou l'on est, pas ce qu'un appui ferait : sinon
+ * la meme forme signifie « tu suis » chez les uns et « clique pour arreter »
+ * chez les autres, et personne ne sait laquelle il regarde.
+ */
+export function IconeCoche({ couleur, taille = GRILLE }: { couleur: string; taille?: number }) {
+  return (
+    <Cadre taille={taille}>
+      <Path
+        d="M5.8 12.4 L10 16.6 L18.2 8.4"
+        fill="none"
+        stroke={couleur}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Cadre>
+  );
+}
+
+/**
+ * La pastille de la fiche principale.
+ *
+ * Une coche dans un disque plein — la forme que tout le monde lit comme
+ * « c'est bien lui », sans avoir a l'expliquer.
+ *
+ * Aplat et non contour, contrairement a la plupart des icones d'ici : elle se
+ * pose a cote d'un nom, a douze pixels, et un contour a cette taille se
+ * refermerait en tache. C'est aussi ce qui la distingue de [[IconeCoche]],
+ * qui dit un etat qu'on a choisi la ou celle-ci dit un fait constate.
+ */
+export function IconePastilleVerifiee({
+  couleur,
+  taille = 14,
+}: {
+  couleur: string;
+  taille?: number;
+}) {
+  return (
+    <Cadre taille={taille}>
+      <Path d="M12 2.2 a9.8 9.8 0 1 1 0 19.6 a9.8 9.8 0 0 1 0-19.6 z" fill={couleur} />
+      <Path
+        d="M7.4 12.3 L10.6 15.4 L16.6 9.2"
+        fill="none"
+        stroke="#0B0C0E"
+        strokeWidth={2.4}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Cadre>
+  );
+}
+
+/**
  * La cloche des notifications.
  *
  * Battant compris — une cloche sans battant se lit comme un dome, et a 22 px

@@ -297,6 +297,47 @@ export default function ProfilPublic() {
               </View>
             ) : null}
 
+            {/* Suit — apres « Aime » et pas avant.
+                « Aime » est deduit des swipes, « Suit » est choisi a la main.
+                Meme ordre que sur Ton Prisme : d'abord ce que le moteur a
+                observe, ensuite ce que la personne a decide. L'inverse ferait
+                passer une poignee de suivis pour son portrait.
+
+                Des portraits en file horizontale, ni pastilles ni casier :
+                les deux sections voisines occupent deja ces deux formes, et
+                trois listes de la meme forme ne se distingueraient plus. */}
+            {profil.suivis && profil.suivis.length > 0 ? (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitre}>Suit</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  // La file deborde de la section : le contenu reprend la
+                  // marge a l'interieur pour que le premier portrait s'aligne
+                  // sur le titre tout en laissant les suivants filer au bord.
+                  style={styles.fileSuivis}
+                  contentContainerStyle={styles.fileSuivisContenu}
+                >
+                  {profil.suivis.map((a) => (
+                    <View key={a.id} style={styles.suiviArtiste}>
+                      <Image
+                        source={{ uri: a.picture }}
+                        style={styles.suiviPortrait}
+                        contentFit="cover"
+                        cachePolicy="memory-disk"
+                        transition={160}
+                        recyclingKey={String(a.id)}
+                        accessibilityLabel={a.name}
+                      />
+                      <Text style={styles.suiviNom} numberOfLines={1}>
+                        {a.name}
+                      </Text>
+                    </View>
+                  ))}
+                </ScrollView>
+              </View>
+            ) : null}
+
             {profil.gardes.length > 0 ? (
               <View style={styles.section}>
                 <Text style={styles.sectionTitre}>Gardés</Text>
@@ -427,6 +468,20 @@ const styles = StyleSheet.create({
   },
   pastilleNom: { ...type.body, fontSize: 15, lineHeight: 20, color: color.text, flexShrink: 1 },
   pastilleCompte: { ...type.label, ...chiffres, fontSize: 13, lineHeight: 18, color: color.textFaint },
+
+  // La file deborde la marge de la section pour filer jusqu'au bord de
+  // l'ecran — un rail qu'on peut pousser se voit mieux qu'une rangee qui
+  // s'arrete net dans la marge.
+  fileSuivis: { marginTop: space.md, marginHorizontal: -space.lg },
+  fileSuivisContenu: { paddingHorizontal: space.lg, gap: space.md },
+  suiviArtiste: { width: 76, gap: space.xs },
+  suiviPortrait: {
+    width: 76,
+    height: 76,
+    borderRadius: radius.full,
+    backgroundColor: color.bgElevated,
+  },
+  suiviNom: { ...type.label, fontSize: 12, lineHeight: 16, color: color.textMuted },
 
   grille: {
     flexDirection: 'row',

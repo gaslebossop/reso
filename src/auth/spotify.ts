@@ -250,7 +250,14 @@ export function redirectUri(): string {
 export class SpotifyError extends Error {}
 
 /**
- * Ouvre l'autorisation Spotify et rend les artistes les plus ecoutes.
+ * Rend les artistes les plus ecoutes, en ouvrant l'autorisation s'il le faut.
+ *
+ * **Une liaison deja posee suffit.** L'import demandait systematiquement une
+ * nouvelle autorisation : sans consequence au demarrage, ou personne n'est
+ * encore relie, mais absurde depuis les reglages d'un compte qui l'est depuis
+ * des mois — on lui reclamait sa permission pour une permission qu'il avait
+ * deja donnee. Le jeton range sur le telephone est utilise tel quel, et
+ * renouvelle tout seul s'il a expire.
  *
  * @returns `null` si la personne a annule — ce n'est pas une erreur.
  */
@@ -260,6 +267,9 @@ export async function importTaste(): Promise<SpotifyTaste | null> {
       "Aucun identifiant Spotify : renseigne EXPO_PUBLIC_SPOTIFY_CLIENT_ID dans .env",
     );
   }
+
+  const dispo = await jetonValable();
+  if (dispo) return topArtists(dispo);
 
   const token = await echanger(false);
   if (!token) return null;
@@ -520,6 +530,13 @@ const SOURCES = [
   { chemin: 'me/player/recently-played?limit=50', poids: 0.7, via: 'ecoutes' },
   { chemin: 'me/library?type=track&limit=50', poids: 0.85, via: 'likes' },
   { chemin: 'me/following?type=artist&limit=50', poids: 0.35, via: 'suivis' },
+  // Les playlists. Elles manquaient, et c'est la source la plus riche apres
+  // les likes : quelqu'un qui range sa musique en playlists y met des annees
+  // d'ecoute que `top` (quatre semaines a six mois) ne voit pas du tout.
+  { chemin: 'me/playlists?limit=50', poids: 0.7, via: 'playlists' },
+  // Les albums enregistres. Geste rare, donc peu d'entrees, mais tres
+  // deliberatif : on ne garde pas un album entier par hasard.
+  { chemin: 'me/albums?limit=50', poids: 0.5, via: 'albums' },
 ] as const;
 
 /** La demi-vie d'un titre like, en jours. Voir `Import.fraicheur` cote Prisme,
@@ -582,6 +599,26 @@ const CHEMINS_LIKES = [
  * artistes **par ordre alphabetique**, donc une coupe donnerait un gout qui
  * commence par A. */
 const PLAFOND_SUIVIS = 5_000;
+
+/** Combien de playlists on ouvre, et jusqu'ou.
+ *
+ * Ici le plafond n'est pas un garde-fou, il **mord** : chaque playlist coute
+ * au moins un appel de plus, et une bibliotheque bien rangee en compte
+ * facilement cent. Cinquante playlists de deux cents titres suffisent
+ * largement a departager quarante-cinq ancres, et bornent l'import a une
+ * poignee de secondes.
+ */
+const MAX_PLAYLISTS = 50;
+const PLAFOND_TITRES_PLAYLIST = 200;
+
+/** Ce que pese une playlist qu'on suit sans l'avoir faite.
+ *
+ * Elle dit quelque chose — on ne suit pas « Metal Essentials » par hasard —
+ * mais elle a ete remplie par quelqu'un d'autre, souvent par un editeur, et
+ * elle contient donc des artistes qu'on n'a jamais choisis. Moitie moins
+ * qu'une playlist qu'on a faite soi-meme.
+ */
+const POIDS_PLAYLIST_SUIVIE = 0.5;
 
 type Via = (typeof SOURCES)[number]['via'];
 
@@ -670,6 +707,7 @@ async function topArtists(accessToken: string): Promise<SpotifyTaste> {
 
 type Page = {
   items?: {
+    id?: string;
     name?: string;
     genres?: string[];
     added_at?: string;
@@ -677,6 +715,12 @@ type Page = {
     track?: { artists?: { name?: string }[] };
     // Emballage de la bibliotheque generique, qui melange les types.
     item?: { artists?: { name?: string }[] };
+    // `me/albums` : l'artiste est sur l'album, pas sur l'entree.
+    album?: { artists?: { name?: string }[] };
+    // `me/playlists` : de qui elle est, et combien elle porte. Une playlist
+    // vide ne vaut pas un appel.
+    owner?: { id?: string };
+    tracks?: { total?: number };
   }[];
   next?: string | null;
   // Certains points d'entree enveloppent la page dans `tracks`.
@@ -753,6 +797,10 @@ async function lire(accessToken: string, chemin: string, via: Via): Promise<Pese
       return likes(accessToken, chemin);
     case 'suivis':
       return suivis(accessToken, chemin);
+    case 'playlists':
+      return playlists(accessToken, chemin);
+    case 'albums':
+      return albums(accessToken, chemin);
     default: {
       const items = (await appel(accessToken, chemin)).items ?? [];
       // Seules les sources qui rendent des **objets artiste** portent des
@@ -866,6 +914,138 @@ async function suivis(accessToken: string, chemin: string): Promise<Pesee[]> {
   }
 
   return sortie;
+}
+
+/** Les artistes des playlists, peses par la date d'ajout de chaque titre.
+ *
+ * **C'est la source qui manquait**, et elle ne se lit pas comme les autres :
+ * `me/playlists` ne rend que des couvertures et des noms. Il faut ouvrir
+ * chaque playlist pour savoir ce qu'il y a dedans, donc un appel par playlist
+ * au minimum — d'ou les plafonds, qui mordent vraiment ici.
+ *
+ * **La playlist « Reso » est ecartee, et ce n'est pas un detail.** C'est nous
+ * qui l'ecrivons, a partir des titres gardes dans le fil ; la relire ferait
+ * du gout une boucle qui se recopie et se renforce elle-meme a chaque import.
+ *
+ * Une playlist qu'on suit sans l'avoir faite compte moitie moins : elle dit
+ * quelque chose, mais son contenu a ete choisi par quelqu'un d'autre.
+ */
+async function playlists(accessToken: string, chemin: string): Promise<Pesee[]> {
+  const maintenant = Date.now();
+  const moi = await identifiant(accessToken);
+
+  // 1. La liste des playlists.
+  const listes: { id: string; nom: string; mienne: boolean }[] = [];
+  let url: string | null = chemin;
+  let premier = true;
+
+  while (url && listes.length < MAX_PLAYLISTS) {
+    const { code, page }: { code: number; page: Page | null } = await sonder(accessToken, url);
+    if (premier) {
+      console.log(`[spotify] playlists via ${url} -> ${code}, ${page?.items?.length ?? 0} listes`);
+      premier = false;
+    }
+    if (!page) break;
+    for (const pl of page.items ?? []) {
+      if (!pl.id) continue;
+      // Une playlist vide ne vaut pas l'appel qu'elle couterait.
+      if ((pl.tracks?.total ?? 1) === 0) continue;
+      if ((pl.name ?? '').trim().toLowerCase() === NOM_PLAYLIST.toLowerCase()) continue;
+      listes.push({
+        id: pl.id,
+        nom: pl.name ?? pl.id,
+        mienne: moi === null || pl.owner?.id === moi,
+      });
+    }
+    url = (page.items ?? []).length > 0 ? relatif(page.next) : null;
+  }
+
+  // 2. Le contenu, quelques playlists a la fois.
+  //
+  // En serie, cinquante playlists font cinquante allers-retours bout a bout et
+  // l'import passe la minute ; toutes ensemble, Spotify repond 429. Quatre de
+  // front est le compromis qui tient — meme ordre de grandeur que la
+  // parallelisation cote moteur.
+  const sortie: Pesee[] = [];
+  let lus = 0;
+
+  for (let i = 0; i < listes.length; i += 4) {
+    const lots = await Promise.all(
+      listes.slice(i, i + 4).map(async (pl) => {
+        const trouves: Pesee[] = [];
+        // `fields` reduit la reponse a ce qu'on lit vraiment : sans lui, chaque
+        // page transporte les pochettes, les marches disponibles et les liens
+        // externes de cent titres.
+        let suite: string | null =
+          `playlists/${pl.id}/tracks?limit=100&fields=next,items(added_at,track(artists(name)))`;
+        let vus = 0;
+        const facteur = pl.mienne ? 1 : POIDS_PLAYLIST_SUIVIE;
+
+        while (suite && vus < PLAFOND_TITRES_PLAYLIST) {
+          const { page }: { page: Page | null } = await sonder(accessToken, suite);
+          if (!page) break;
+          const items = page.items ?? [];
+          vus += items.length;
+          for (const it of items) {
+            const nom = it.track?.artists?.[0]?.name ?? '';
+            if (nom) trouves.push({ nom, poids: fraicheur(it.added_at, maintenant) * facteur });
+          }
+          suite = items.length > 0 ? relatif(page.next) : null;
+        }
+        return { nom: pl.nom, mienne: pl.mienne, trouves, vus };
+      }),
+    );
+    for (const l of lots) {
+      lus += l.vus;
+      sortie.push(...l.trouves);
+    }
+  }
+
+  console.log(
+    `[spotify] ${listes.length} playlists ouvertes (${listes.filter((l) => l.mienne).length} a moi), ` +
+      `${lus} titres lus, ${sortie.length} artistes retenus`,
+  );
+  return sortie;
+}
+
+/** Les albums enregistres, pesés par la date d'ajout.
+ *
+ * Peu d'entrees, mais chacune est un geste : garder un album entier demande
+ * plus d'intention que liker un titre. */
+async function albums(accessToken: string, chemin: string): Promise<Pesee[]> {
+  const maintenant = Date.now();
+  const sortie: Pesee[] = [];
+  let url: string | null = chemin;
+  let premier = true;
+
+  while (url && sortie.length < PLAFOND_SUIVIS) {
+    const { code, page }: { code: number; page: Page | null } = await sonder(accessToken, url);
+    if (premier) {
+      console.log(`[spotify] albums via ${url} -> ${code}, ${page?.items?.length ?? 0} albums`);
+      premier = false;
+    }
+    if (!page) break;
+    const items = page.items ?? [];
+    for (const it of items) {
+      const nom = it.album?.artists?.[0]?.name ?? it.artists?.[0]?.name ?? '';
+      if (nom) sortie.push({ nom, poids: fraicheur(it.added_at, maintenant) });
+    }
+    url = items.length > 0 ? relatif(page.next) : null;
+  }
+
+  return sortie;
+}
+
+/** L'identifiant Spotify de la personne connectee.
+ *
+ * Sert a distinguer ses playlists de celles qu'elle suit. `null` si l'appel
+ * echoue : on considere alors toutes les playlists comme siennes, ce qui est
+ * le bon repli — mieux vaut surponderer une playlist editoriale que perdre
+ * toutes les vraies.
+ */
+async function identifiant(accessToken: string): Promise<string | null> {
+  const { page } = await sonder(accessToken, 'me');
+  return (page as unknown as { id?: string } | null)?.id ?? null;
 }
 
 function describe(result: AuthSession.AuthSessionResult, uri: string): string {

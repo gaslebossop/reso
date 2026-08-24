@@ -4,10 +4,10 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { prisme } from '../src/api/client';
-import type { Artist } from '../src/api/types';
+import type { Track } from '../src/api/types';
 import { Etapes } from '../src/components/Etapes';
-import { MurDePochettes } from '../src/components/MurDePochettes';
-import { artistes as chargerArtistes } from '../src/state/catalogue';
+import { MurAccueil } from '../src/components/MurAccueil';
+import { pochettesAccueil } from '../src/state/accueil';
 import { markOnboarded } from '../src/state/session';
 import { vibrer } from '../src/state/vibration';
 import { useAccount } from '../src/state/useAccount';
@@ -16,32 +16,46 @@ import { color, PIED_SECONDAIRE, radius, space, type } from '../src/theme/tokens
 /**
  * La porte.
  *
- * Deux corrections, et elles vont ensemble.
+ * ## Le paradigme : une porte pleine, posée devant le mur
  *
- * **Le fond.** L'ecran etait le seul noir et vide du parcours, coince entre
- * l'accueil et la grille d'artistes — deux ecrans pleins d'images. Le mur de
- * portraits ne recommence donc pas ici : **il continue**. On ne change pas de
- * decor pour poser une question, on ne change que la phrase.
+ * Le même mur que l'accueil — les mêmes pochettes, le cache de session les
+ * rend instantanément — mais l'écran n'y répond pas de la même façon : ici,
+ * **une surface pleine et calme se pose sur le bas du mur**, comme une porte
+ * qu'on ferme devant une cale de disques pour poser une question. Rien ne
+ * flotte sur les photos, donc plus rien n'a besoin de voile ni de dégradé :
+ * le haut de l'écran reste des pochettes entières et nettes, le bas porte la
+ * question sur du noir plein.
  *
- * **Le nombre de choses.** Il y avait un sur-titre en capitales, un titre,
- * deux paragraphes jumeaux « avec compte / sans compte » separes d'un filet,
- * un bouton et un lien. Six blocs pour une question binaire. Il en reste
- * quatre, et un seul demande a etre lu.
+ * Ce qui a été refusé ici, et pourquoi : la variante précédente posait un
+ * texte centré sur un dégradé au milieu des images — la composition splash
+ * que tout le monde reconnaît et que personne ne regarde. Le texte y vivait
+ * d'une position (au milieu, en grand, centré) qui ne disait rien ; là, il
+ * vit dans un objet — la porte — aligné comme le reste de l'application.
  *
- * Rien n'est ecrit sous « Plus tard » : ce que l'on renonce a emporter est
- * deja dit juste au-dessus, en positif. Le repeter en negatif au moment de
- * refuser sonne comme une derniere tentative de retenir.
+ * ## La hiérarchie, une fois tranchée
  *
- * Le bouton principal tombe **exactement** a la meme hauteur que celui de
- * l'accueil (voir `PIED_SECONDAIRE`) : c'est ce qui fait que l'ecran a l'air
- * d'avoir change de texte plutot que d'avoir ete remplace.
+ * Les étapes du démarrage, puis la promesse (« Ton goût peut te suivre »),
+ * puis ce que la porte ouvre exactement, puis l'action. Un seul bloc domine ;
+ * l'accent est réservé au seul bouton qui fait avancer. « Plus tard » est une
+ * ligne, pas un bouton : les deux issues n'ont pas le même poids, et c'est ce
+ * qui laisse sortir ceux qui veulent écouter tout de suite.
+ *
+ * ## Ce qui a disparu
+ *
+ * - La caption en capitales espacées : « Réseau G », le bouton juste en
+ *   dessous le disait déjà.
+ * - Le dégradé, et avec lui toute superposition de texte sur image.
+ *
+ * `PIED_SECONDAIRE` reste : « Plus tard » occupe exactement la hauteur que
+ * l'accueil réserve à sa place, pour que le pouce retrouve toujours le bouton
+ * principal là où il l'a quitté.
  */
 export default function Connexion() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const compte = useAccount();
   const [suite, setSuite] = useState(false);
-  const [grille, setGrille] = useState<Artist[]>([]);
+  const [pochettes, setPochettes] = useState<Track[]>([]);
   // Un seul enchainement, quoi qu'il arrive : `useAccount` se rafraichit
   // plusieurs fois autour d'une connexion, et sans ce verrou on empilerait
   // autant de navigations.
@@ -51,9 +65,7 @@ export default function Connexion() {
   // requete, et le mur est en place au premier rendu.
   useEffect(() => {
     let vivant = true;
-    chargerArtistes()
-      .then((as) => vivant && setGrille(as))
-      .catch(() => {});
+    pochettesAccueil().then((ts) => vivant && setPochettes(ts));
     return () => {
       vivant = false;
     };
@@ -94,27 +106,33 @@ export default function Connexion() {
   const occupe = compte.busy || suite;
 
   return (
-    <View style={styles.screen}>
-      <MurDePochettes artistes={grille} />
+    <View style={[styles.screen, { paddingBottom: insets.bottom }]}>
+      {/* Plein bord volontaire : voir la note sur le padding de la racine dans
+          bienvenue.tsx. Le mur passe derrière la porte, visible au-dessus
+          d'elle sur toute la largeur. */}
+      <MurAccueil tracks={pochettes} />
 
-      <View
-        style={[
-          styles.contenu,
-          { paddingTop: insets.top + space.lg, paddingBottom: insets.bottom + space.lg },
-        ]}
-      >
+      <View style={styles.porte}>
         <Etapes courante={1} />
 
-        <View style={styles.propos}>
-          <Text style={styles.titre}>Ton goût peut te suivre.</Text>
-          <Text style={styles.texte}>
-            Avec un compte du réseau G, tes titres gardés et ton Prisme te retrouvent sur n'importe
-            quel téléphone.
-          </Text>
-        </View>
+        <Text
+          style={styles.titre}
+          numberOfLines={2}
+          adjustsFontSizeToFit
+          minimumFontScale={0.86}
+        >
+          Ton goût peut te suivre.
+        </Text>
+        <Text style={styles.legende}>
+          Tes gardés et ton Prisme te suivent sur chaque appareil.
+        </Text>
 
         <Pressable
-          style={({ pressed }) => [styles.cta, occupe && styles.ctaOccupe, pressed && styles.ctaPresse]}
+          style={({ pressed }) => [
+            styles.cta,
+            occupe && styles.ctaOccupe,
+            pressed && styles.ctaPresse,
+          ]}
           disabled={occupe}
           onPress={avecCompte}
           accessibilityRole="button"
@@ -143,12 +161,26 @@ export default function Connexion() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: color.bg },
-  contenu: { flex: 1, paddingHorizontal: space.lg },
-  // Meme construction que l'accueil : le mur tient le haut, le texte tombe au
-  // pied de l'ecran, la main arrive naturellement sur le bouton.
-  propos: { flex: 1, justifyContent: 'flex-end', gap: space.md, paddingBottom: space.xl },
-  titre: { ...type.display, fontSize: 34, lineHeight: 40, color: color.text },
-  texte: { ...type.lead, color: color.textMuted },
+  porte: {
+    marginTop: 'auto',
+    backgroundColor: color.bg,
+    borderTopLeftRadius: radius.card,
+    borderTopRightRadius: radius.card,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    borderColor: color.hairline,
+    paddingHorizontal: space.lg,
+    paddingTop: space.md,
+  },
+  titre: { ...type.display, fontSize: 28, lineHeight: 34, color: color.text },
+  legende: {
+    ...type.body,
+    fontSize: 15,
+    lineHeight: 21,
+    color: color.textMuted,
+    marginTop: space.sm,
+    marginBottom: space.lg,
+  },
   cta: {
     minHeight: 52,
     alignItems: 'center',
@@ -167,13 +199,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: space.sm,
   },
-  // Meme hauteur reservee que sur l'accueil, pour que le bouton principal
-  // occupe exactement la meme place sur les deux ecrans.
+  // Exactement la hauteur que l'accueil reserve a cette place, pour que le
+  // bouton principal ne bouge pas d'un ecran a l'autre. Voir PIED_SECONDAIRE.
   plusTard: {
     height: PIED_SECONDAIRE,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: space.sm,
+    marginTop: space.xs,
   },
   plusTardTitre: { ...type.lead, fontSize: 15, lineHeight: 20, color: color.textMuted },
 });

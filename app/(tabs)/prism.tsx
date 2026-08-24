@@ -5,9 +5,9 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, useWindowDi
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AccountRequiredError, prisme } from '../../src/api/client';
-import type { Prism, PrismFacet, Stats } from '../../src/api/types';
+import type { Artist, Prism, PrismFacet, Stats } from '../../src/api/types';
 import { AccountGate } from '../../src/components/AccountGate';
-import { IconeReglages } from '../../src/components/Icones';
+import { IconeChevron, IconeReglages } from '../../src/components/Icones';
 import { duree, habitudes } from '../../src/state/portrait';
 import { resetSession } from '../../src/state/session';
 import { refreshAccount, useAccount } from '../../src/state/useAccount';
@@ -52,6 +52,7 @@ export default function PrismScreen() {
   const { width: ecran } = useWindowDimensions();
   const [prism, setPrism] = useState<Prism | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
+  const [suivis, setSuivis] = useState<Artist[]>([]);
   const [loading, setLoading] = useState(true);
 
   /**
@@ -72,14 +73,18 @@ export default function PrismScreen() {
     try {
       // De front : ce sont deux lectures independantes, et les enchainer
       // doublerait l'attente devant un ecran vide.
-      const [p, s] = await Promise.all([
+      const [p, s, f] = await Promise.all([
         prisme.prism(),
         // Le portrait est un supplement : un moteur d'une version anterieure
         // n'a pas cette route, et l'ecran doit rester entier sans elle.
         prisme.stats().catch(() => null),
+        // Les suivis aussi : meme raison, et la section disparait sans eux
+        // plutot que de montrer un trou.
+        prisme.artistesSuivis().then((r) => r.artists).catch(() => []),
       ]);
       setPrism(p);
       setStats(s);
+      setSuivis(f);
     } catch (e) {
       if (e instanceof AccountRequiredError) await refreshAccount();
     } finally {
@@ -177,6 +182,20 @@ export default function PrismScreen() {
 
       <But prism={prism} stats={stats} />
 
+      {/* L'ajout a la main, juste sous le but et au-dessus des listes.
+          La ou il compte : le but dit ce qu'il manque au Prisme pour passer
+          au stade suivant, et c'est exactement la qu'on se demande si l'on
+          peut aider. Range dans les reglages, personne ne l'aurait trouve. */}
+      <Pressable
+        onPress={() => router.push('/ajouter')}
+        style={({ pressed }) => [styles.ajouter, pressed && styles.ajouterPresse]}
+        accessibilityRole="button"
+        accessibilityLabel="Ajouter des artistes ou des titres à ton goût"
+      >
+        <Text style={styles.ajouterTexte}>Ajouter un artiste ou un titre</Text>
+        <IconeChevron couleur={color.textFaint} />
+      </Pressable>
+
       {artistes.length === 0 ? (
         <Vide />
       ) : (
@@ -210,6 +229,47 @@ export default function PrismScreen() {
           </View>
         </View>
       )}
+
+      {/* Les suivis, apres la liste apprise et pas avant.
+          Deux listes d'artistes sur le meme ecran demandent qu'on sache
+          laquelle on regarde, et l'ordre le dit : d'abord ce que le Prisme a
+          DEDUIT, puis ce qu'on a CHOISI. L'inverse aurait fait passer une
+          poignee d'artistes suivis pour le portrait, alors que le portrait est
+          precisement ce qui se construit sans qu'on le decide.
+
+          Meme grille, meme tuile, meme portrait : c'est la note qui distingue
+          les deux sections, pas une seconde langue visuelle. */}
+      {suivis.length > 0 ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitre}>Tes suivis</Text>
+          <Text style={styles.sectionNote}>
+            Ceux que tu as choisis toi-même. Ils reviennent plus souvent dans ton fil.
+          </Text>
+          <View style={styles.grille}>
+            {suivis.map((a) => (
+              <View key={a.id} style={[styles.colonne, { width: cote }]}>
+                <Image
+                  source={{ uri: a.picture }}
+                  style={[styles.portrait, { width: cote, height: cote }]}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  transition={160}
+                  recyclingKey={String(a.id)}
+                  accessibilityLabel={a.name}
+                />
+                <Text
+                  style={styles.portraitNom}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.8}
+                >
+                  {a.name}
+                </Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      ) : null}
 
       {lignes.length > 0 ? (
         <View style={styles.habitudes}>
@@ -309,6 +369,20 @@ const styles = StyleSheet.create({
   phrase: { ...type.display, fontSize: 26, lineHeight: 34, color: color.textMuted },
   phraseFort: { color: color.text },
   phraseSuite: { ...type.body, fontSize: 15, lineHeight: 20, color: color.textFaint },
+
+  ajouter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: space.xl,
+    marginHorizontal: space.lg,
+    paddingHorizontal: space.md,
+    minHeight: 52,
+    borderRadius: radius.md,
+    backgroundColor: color.bgElevated,
+  },
+  ajouterPresse: { opacity: 0.7 },
+  ajouterTexte: { ...type.body, fontSize: 15, lineHeight: 20, color: color.text },
 
   // Les mondes : separes par des filets, comme les mentions d'une pochette.
   section: { marginTop: space.xl },

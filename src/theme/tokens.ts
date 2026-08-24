@@ -56,6 +56,24 @@ export const radius = {
   full: 999,
 } as const;
 
+/**
+ * Hauteur du bloc secondaire sous le bouton principal, sur les deux ecrans
+ * d'ouverture.
+ *
+ * **Retiree une fois, et le defaut est revenu immediatement** : sans elle,
+ * l'accueil n'a rien sous son bouton alors que la porte du reseau G porte
+ * « Plus tard », et le bouton principal saute d'une cinquantaine de points
+ * entre deux pages faites pour se lire comme une seule. C'est le premier
+ * mouvement de l'application, et c'est celui qu'on remarque.
+ *
+ * L'accueil reserve donc cette hauteur sans rien mettre dedans. Ce n'est pas
+ * du vide decoratif : c'est la place d'un element qui existe sur l'ecran
+ * suivant.
+ *
+ * 52 = la cible tactile de « Plus tard » (16 + 20 + 16).
+ */
+export const PIED_SECONDAIRE = 52;
+
 export const type = {
   display: { fontSize: 32, fontWeight: '700', letterSpacing: -0.8 },
   /** Le texte qu'on lit vraiment, pas celui qu'on survole.
@@ -70,15 +88,6 @@ export const type = {
   caption: { fontSize: 11, fontWeight: '600', letterSpacing: 0.6 },
 } as const;
 
-/**
- * Hauteur reservee sous le bouton principal des ecrans de demarrage.
- *
- * Les deux ecrans la reservent, **y compris celui qui n'a pas d'action
- * secondaire**. C'est ce qui fait que le bouton ne se deplace pas d'un ecran a
- * l'autre : un bouton qui saute de trente pixels entre deux pages qui se
- * ressemblent casse l'illusion qu'on est reste au meme endroit.
- */
-export const PIED_SECONDAIRE = 44;
 
 /**
  * Chiffres alignes.

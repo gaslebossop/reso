@@ -186,11 +186,61 @@ export const prisme = {
     });
   },
 
+  /**
+   * La pochette des ecrans d'ouverture : une seule, en grand.
+   *
+   * Remplace la grille de trente-six portraits que l'accueil demandait pour
+   * son mur — soixante telechargements d'images sur le premier ecran de
+   * l'app. `track` peut etre `null` : l'accueil doit s'ouvrir sans reseau.
+   */
+  accueil: () => call<{ tracks: Track[] }>('/accueil', undefined, { anonymous: true }),
+
   /** Grille d'artistes pour l'onboarding. */
   onboardingArtists: () => call<{ artists: Artist[] }>('/onboarding/artists'),
 
   searchArtists: (q: string) =>
     call<{ artists: Artist[] }>(`/search/artists?q=${encodeURIComponent(q)}`),
+
+  /**
+   * Les voisins d'un artiste : « si tu aimes lui, alors eux aussi ».
+   *
+   * Le graphe `related` de Deezer, celui dont tout le moteur depend. Sert a
+   * l'amorcage : choisir six artistes de memoire est difficile, et un
+   * palmares ne propose que des tubes. Partir d'un nom qu'on a en tete et
+   * derouler ses voisins donne des choix qu'on n'aurait pas formules.
+   *
+   * Ces fiches-la portent le nombre d'abonnes, contrairement a celles du
+   * palmares d'amorcage — c'est `related` qui le rend, sans appel de plus.
+   */
+  voisinsArtiste: (artistId: number) =>
+    call<{ artists: Artist[] }>(`/artists/${artistId}/voisins`),
+
+  /** Le pendant pour les titres : on cherche un artiste quand on sait qui on
+   *  aime, un titre quand on se souvient d'une chanson sans savoir de qui. */
+  searchTracks: (q: string) =>
+    call<{ tracks: Track[] }>(`/search/tracks?q=${encodeURIComponent(q)}`),
+
+  /**
+   * Ajouter du gout a la main, sans passer par le fil.
+   *
+   * Les deux matieres ne sont pas traitees pareil cote moteur, et l'ecran doit
+   * le dire : un **artiste** devient une ancre du gout ET il est suivi ; un
+   * **titre** est archive comme un « je garde » et entre en bibliotheque.
+   *
+   * Les listes `refuses` ne sont pas un detail : un artiste sans voisins chez
+   * Deezer est une impasse pour le moteur — il ne peut engendrer aucune carte
+   * — et il est ecarte. Le taire ferait croire a un ajout qui n'a pas eu lieu.
+   */
+  ajouterAuGout: (input: { artistIds?: number[]; trackIds?: number[] }) =>
+    post<{
+      artistes_ajoutes: number[];
+      artistes_refuses: number[];
+      titres_ajoutes: number[];
+      titres_refuses: number[];
+    }>('/taste/ajout', {
+      artist_ids: input.artistIds ?? [],
+      track_ids: input.trackIds ?? [],
+    }),
 
   /**
    * Ce que le moteur sait importer.
@@ -223,11 +273,33 @@ export const prisme = {
    *
    * `resolved` rend la correspondance nom -> identifiant Deezer que le moteur
    * vient d'etablir. Sans elle, l'ecran des styles devrait repayer une
-   * recherche Deezer par artiste pour savoir quelles ancres un style recouvre. */
-  seed: (input: { artistIds?: number[]; artists?: string[] }) =>
-    post<{ user_id: string; anchors: number; resolved: Record<string, number> }>('/taste/seed', {
+   * recherche Deezer par artiste pour savoir quelles ancres un style recouvre.
+   *
+   * `source` et `remplace` servent aux **reimports**, pas au demarrage : ils
+   * disent au moteur d'effacer le precedent import de cette source-la avant
+   * d'ecrire celui-ci. Sans eux, relier Spotify une seconde fois donnait a
+   * Spotify deux parts de voix et gardait en vie une lecture perimee. Un
+   * moteur d'une version anterieure les ignore et se contente d'ajouter.
+   *
+   * `total` est le nombre d'ancres que le profil retient **apres** fusion de
+   * tous les imports — c'est lui qui dit si le reimport a change quelque
+   * chose, pas `anchors`, qui ne compte que ce qui vient d'etre envoye. */
+  seed: (input: {
+    artistIds?: number[];
+    artists?: string[];
+    source?: 'spotify' | 'deezer' | 'ytmusic';
+    remplace?: boolean;
+  }) =>
+    post<{
+      user_id: string;
+      anchors: number;
+      total?: number;
+      resolved: Record<string, number>;
+    }>('/taste/seed', {
       artist_ids: input.artistIds ?? [],
       artists: input.artists ?? [],
+      ...(input.source ? { source: input.source } : {}),
+      ...(input.remplace ? { remplace: true } : {}),
     }),
 
   /** Les styles proposables, tires des ancres par le moteur.
@@ -291,6 +363,21 @@ export const prisme = {
 
   /** Les artistes choisis a l'inscription, dans l'ordre ou ils l'ont ete. */
   anchors: () => call<{ artists: Artist[] }>('/taste/anchors'),
+
+  /** Les artistes suivis, du plus recemment suivi au plus ancien.
+   *  Exige un compte du reseau G : c'est justement ce qu'on veut retrouver
+   *  sur un autre telephone. */
+  artistesSuivis: () => call<{ artists: Artist[] }>('/artists/suivis'),
+
+  /** Suivre / ne plus suivre un artiste.
+   *
+   *  Idempotent cote moteur : l'app peut donc etre optimiste — basculer le
+   *  bouton tout de suite et appeler ensuite — sans avoir a se demander ce
+   *  qu'elle croit savoir de l'etat reel. */
+  suivreArtiste: (artistId: number, on: boolean) =>
+    call<{ artist_id: number; suivi: boolean }>(`/artists/${artistId}/suivre`, {
+      method: on ? 'PUT' : 'DELETE',
+    }),
 
   /** Les artistes bannis d'un swipe vers le bas. */
   blocked: () => call<{ artists: Artist[] }>('/blocked'),

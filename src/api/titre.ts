@@ -66,3 +66,24 @@ export function ligneInterpretes(principal: string, avec: string[]): string {
   if (avec.length === 0) return principal;
   return `${principal}  ·  avec ${avec.join(', ')}`;
 }
+
+/**
+ * Le nombre d'abonnes, lisible d'un coup d'oeil.
+ *
+ * Sert a distinguer le vrai artiste de sa coquille vide dans les resultats de
+ * recherche : le catalogue Deezer porte des doublons de distributeurs qui ont
+ * quelques dizaines d'abonnes la ou l'original en a des millions.
+ *
+ * Arrondi volontairement grossier — on compare des ordres de grandeur, pas des
+ * chiffres. « 2,4 M » et « 2 412 883 » disent la meme chose ici, et le second
+ * demande de compter les rangs.
+ */
+export function fansLisibles(n: number | undefined): string | null {
+  if (n === undefined || n <= 0) return null;
+  if (n >= 1_000_000) {
+    const m = n / 1_000_000;
+    return `${m >= 10 ? Math.round(m) : m.toFixed(1).replace('.', ',')} M d'abonnés`;
+  }
+  if (n >= 1_000) return `${Math.round(n / 1_000)} k abonnés`;
+  return `${n} abonné${n > 1 ? 's' : ''}`;
+}
