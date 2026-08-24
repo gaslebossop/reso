@@ -1,0 +1,178 @@
+name: Build iOS Unsigned
+
+# Build iOS non signe sur un runner macOS GitHub, pour contourner
+# l'exigence Xcode >= 16.1 de React Native 0.81 que la VM locale
+# (Xcode 15.1) ne peut pas satisfaire.
+#
+# Recette reprise telle quelle de twitninfbeta (.github/workflows/ios-build.yml),
+# ou elle est eprouvee : chaque etape un peu etrange plus bas (chmod +x sur les
+# Mach-O, signature ad-hoc, `zip -y`) corrige un symptome reellement rencontre
+# a l'installation. Ne pas les simplifier sans avoir relu les commentaires.
+#
+# Ce que twitninfbeta fait EN PLUS et qui n'est volontairement pas ici : la
+# publication (upload de l'IPA sur le VPS + mise a jour de la source AltStore
+# dans un gist, avec estampillage de buildVersion). Reso n'a pas encore ce
+# circuit de distribution ; l'IPA sort donc en artefact de run, a telecharger
+# depuis l'onglet Actions.
+#
+# L'artefact produit est un .ipa signe en ad-hoc (aucun certificat Apple
+# requis) : le RE-signer ensuite avec Sideloadly ou AltStore (Apple ID
+# gratuit) pour l'installer sur un appareil. Voir l'etape « Package IPA »
+# pour pourquoi l'ad-hoc n'est pas optionnel.
+#
+# DECLENCHEMENT MANUEL UNIQUEMENT — builder est une decision, pas un effet de
+# bord d'un merge (meme regle que sur twitninfbeta) :
+#   gh workflow run ios-build.yml --repo gaslebossop/reso
+# ou l'onglet Actions > Build iOS Unsigned > Run workflow.
+on:
+  workflow_dispatch:
+
+# Un seul build a la fois, et surtout PAS d'annulation du run en cours : un
+# build iOS complet coute une quinzaine de minutes de runner macOS, autant ne
+# pas les jeter parce qu'un second run a ete lance entre-temps.
+concurrency:
+  group: ios-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pas d'etape « Configure les domaines » ici, contrairement a
+      # twitninfbeta : le `.env` de Reso est versionne (il ne contient que
+      # l'URL publique du moteur Prisme et l'identifiant client Spotify, qui
+      # est public par construction dans le flux PKCE). Metro l'inline donc
+      # tout seul pendant le bundle JS, lui-meme declenche par `xcodebuild
+      # archive`. Si un jour un secret doit y entrer, reprendre l'etape de
+      # twitninfbeta : ecrire le .env ET $GITHUB_ENV, car la phase « Bundle
+      # React Native code » ne tourne pas forcement avec le repo en working
+      # directory et peut manquer le dotenv en silence.
+
+      # RN 0.81 exige Xcode >= 16.1 ; le runner en embarque plusieurs, on prend
+      # systematiquement le plus recent plutot que d'epingler une version qui
+      # disparaitra de l'image dans six mois.
+      - name: Select latest Xcode
+        run: |
+          set -euo pipefail
+          ls -d /Applications/Xcode*.app
+          XC=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          echo "Selection de $XC"
+          sudo xcode-select -s "$XC"
+          xcodebuild -version
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # --legacy-peer-deps : l'arbre React 19 / RN 0.81 declenche des ERESOLVE
+      # sur plusieurs paquets de l'ecosysteme sinon.
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      # `ios/` est dans .gitignore : le projet natif est integralement
+      # regenere ici a partir de app.json.
+      - name: Prebuild iOS
+        run: npx expo prebuild --platform ios --clean
+
+      # Etape explicite : `expo prebuild` ne lance pas toujours pod install
+      # sur CI, et sans les Pods aucun .xcworkspace n'est genere.
+      - name: Install pods
+        working-directory: ios
+        run: pod install
+
+      # Le nom du workspace est derive du nom de l'app et non code en dur,
+      # pour ne pas casser si celui-ci change.
+      # `archive` et non `build` : l'action archive execute la phase install
+      # (strip, post-processing de deploiement) et produit l'app telle
+      # qu'elle serait distribuee, dans Products/Applications.
+      - name: Archive unsigned
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          WORKSPACE=$(ls -d *.xcworkspace | head -1)
+          SCHEME="${WORKSPACE%.xcworkspace}"
+          echo "Workspace: $WORKSPACE — Scheme: $SCHEME"
+          xcodebuild \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath "$PWD/build/$SCHEME.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            archive
+
+      # Empaquetage sur macOS et non cote Windows : le zip de Windows ecrit
+      # les chemins avec des antislashs, omet les entrees de repertoire et
+      # perd les permissions Unix (bit executable du binaire). AltStore
+      # rejette alors l'archive avec « invalid format ». `zip -y` preserve
+      # en prime les liens symboliques des frameworks.
+      - name: Package IPA
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          APP=$(ls -d build/*.xcarchive/Products/Applications/*.app | head -1)
+          NAME=$(basename "$APP" .app)
+          rm -rf Payload
+          mkdir Payload
+          cp -r "$APP" Payload/
+
+          # Certains frameworks sortent de l'archive avec leur binaire en 0644
+          # (constate sur React.framework et ReactNativeDependencies.framework,
+          # alors que hermes.framework est bien en 0755) : le binaire Mach-O
+          # d'un framework DOIT etre executable, sinon le bundle est invalide
+          # et les outils de sideload rejettent l'IPA avec « Invalid file »
+          # — alors meme que l'archive est par ailleurs parfaitement saine,
+          # ce qui rend le symptome tres trompeur.
+          find Payload -type f -exec sh -c '
+            for f do
+              magic=$(od -An -N4 -tx1 "$f" | tr -d " \n")
+              case "$magic" in
+                cffaedfe|cefaedfe|feedfacf|feedface|cafebabe) chmod +x "$f" ;;
+              esac
+            done
+          ' sh {} +
+
+          # Signature ad-hoc (identite « - ») : ne demande AUCUN certificat ni
+          # profil Apple, mais produit le squelette _CodeSignature/CodeResources
+          # dans l'app et dans chaque framework.
+          #
+          # C'est indispensable : les outils de sideload (Sideloadly, AltStore)
+          # RE-signent une app, ils ne la signent pas depuis zero. Un bundle
+          # totalement depourvu de _CodeSignature est rejete a l'installation
+          # avec « Invalid file » — diagnostic trompeur, car l'archive est par
+          # ailleurs valide (zip sain, Info.plist complet, Mach-O arm64/iOS).
+          #
+          # De l'interieur vers l'exterieur : signer l'app en dernier, sinon sa
+          # signature ne couvrirait pas les frameworks re-signes apres elle.
+          for fw in Payload/*.app/Frameworks/*.framework; do
+            [ -d "$fw" ] || continue
+            codesign --force --sign - --timestamp=none "$fw"
+          done
+          codesign --force --sign - --timestamp=none Payload/*.app
+          codesign --verify --verbose Payload/*.app
+
+          # -y : stocke les liens symboliques tels quels au lieu de les suivre
+          # (les frameworks iOS sont plats aujourd'hui, mais un lien duplique
+          # casserait la signature au moment du resign).
+          zip -y -r "$NAME.ipa" Payload
+
+          # Garde-fou : sans cette structure, l'IPA est inutilisable pour du
+          # sideload — autant que le build echoue ici plutot qu'a l'install.
+          if ! unzip -l "$NAME.ipa" | grep -q "_CodeSignature/CodeResources"; then
+            echo "::error::IPA sans _CodeSignature — la signature ad-hoc a echoue."
+            exit 1
+          fi
+          unzip -l "$NAME.ipa" | tail -3
+          ls -lh "$NAME.ipa"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: ios/*.ipa
+          if-no-files-found: error
