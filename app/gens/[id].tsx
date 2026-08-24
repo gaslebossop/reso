@@ -1,0 +1,445 @@
+import { Image } from 'expo-image';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { prisme } from '../../src/api/client';
+import type { ProfilSocial, Track } from '../../src/api/types';
+import { IconeChevron, IconeRetour } from '../../src/components/Icones';
+import { Visage } from '../../src/components/Visage';
+import { chargerPlateforme, lienVers } from '../../src/state/plateforme';
+import { vibrer } from '../../src/state/vibration';
+import { chiffres, color, radius, space, type } from '../../src/theme/tokens';
+
+/**
+ * Le profil public : ce que cette personne garde, ce qu'elle aime, qui la
+ * suit — et ce que VOUS partagez.
+ *
+ * L'ordre des sections est un ordre d'envie :
+ *
+ *  1. **En commun** — les titres que vous avez gardes tous les deux. C'est la
+ *     seule section qui parle des deux a la fois, et la raison pour laquelle
+ *     on ouvre un profil : « on a les memes gouts » se prouve, il ne se
+ *     declare pas. Absente sur son propre profil, absente quand elle est vide.
+ *  2. **Suivre** — un bouton, deux etats. Le retrait ne demande pas de
+ *     confirmation : ne plus suivre n'efface rien chez l'autre, c'est un
+ *     geste sans consequence qui merite un geste sans ceremonie.
+ *  3. **Aime**, en pastilles ; **Gardes**, en casier.
+ *
+ * Un profil cache repond 404 cote moteur ; l'ecran le dit « introuvable »,
+ * sans distinguer inexistant de cache — la distinction elle-meme serait une
+ * fuite.
+ */
+
+/** L'espace entre les deux colonnes du casier. */
+const GOUTTIERE = space.md;
+
+/** Le visage du profil. Passe en constante et non en feuille de styles :
+ *  `Visage` en a besoin pour arrondir son repli au bon rayon. */
+const AVATAR = 88;
+
+export default function ProfilPublic() {
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const { width } = useWindowDimensions();
+  const { id: brut } = useLocalSearchParams<{ id?: string }>();
+  const id = typeof brut === 'string' ? decodeURIComponent(brut) : '';
+
+  const [profil, setProfil] = useState<ProfilSocial | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [monId, setMonId] = useState<string | null>(null);
+
+  useEffect(() => {
+    void chargerPlateforme();
+  }, []);
+
+  /**
+   * Qui je suis. Demande **une fois**, au montage.
+   *
+   * Ca ne change pas pendant la vie de l'ecran, et le remettre dans l'effet de
+   * focus ajoutait un aller-retour a chaque retour d'une sous-page pour une
+   * reponse toujours identique.
+   */
+  useEffect(() => {
+    let vivant = true;
+    prisme
+      .me()
+      .then((m) => {
+        if (vivant) setMonId(m.user_id);
+      })
+      .catch(() => {
+        if (vivant) setMonId(null);
+      });
+    return () => {
+      vivant = false;
+    };
+  }, []);
+
+  /** Vrai des qu'un profil a ete affiche au moins une fois. Une reference et
+   *  non un etat : `load` ne doit dependre que de `id`, sinon l'effet de focus
+   *  se rejoue a chaque changement de profil. */
+  const dejaVu = useRef(false);
+  useEffect(() => {
+    dejaVu.current = false;
+  }, [id]);
+
+  /**
+   * Le profil, recharge a chaque retour sur l'ecran — **sans le vider**.
+   *
+   * Il se remplacait par une roue a chaque fois qu'on revenait de la liste des
+   * abonnes ou des titres en commun : `setLoading(true)` etait inconditionnel,
+   * donc revenir en arriere donnait exactement l'impression d'ouvrir la page
+   * pour la premiere fois. La donnee est pourtant encore la ; elle est juste
+   * peut-etre un peu vieille, ce qui se corrige en silence.
+   *
+   * Meme raison pour l'erreur : un rafraichissement qui echoue ne doit pas
+   * effacer ce qui est deja lisible a l'ecran. On ne remplace par un message
+   * que s'il n'y a rien dessous.
+   */
+  const load = useCallback(async () => {
+    if (!id) return;
+    if (!dejaVu.current) {
+      setLoading(true);
+      setErreur(null);
+    }
+    try {
+      const p = await prisme.profilPublic(id);
+      setProfil(p);
+      setErreur(null);
+      dejaVu.current = true;
+    } catch (e) {
+      if (!dejaVu.current) setErreur(e instanceof Error ? e.message : 'Profil indisponible');
+    } finally {
+      setLoading(false);
+    }
+  }, [id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
+
+  /** Suivre / ne plus suivre, en optimiste : le bouton repond au doigt, la
+   *  reponse serveur fait foi au retour et annule si elle contredit. */
+  const basculerSuivi = useCallback(async () => {
+    if (!profil || (monId && profil.id === monId)) return;
+    const suivant = !profil.suivi;
+    vibrer.choix();
+    setProfil({ ...profil, suivi: suivant, abonnes: profil.abonnes + (suivant ? 1 : -1) });
+    const r = await prisme.suivre(profil.handle || profil.id, suivant).catch(() => null);
+    if (r) setProfil((p) => (p ? { ...p, suivi: r.suivi, abonnes: r.abonnes } : p));
+  }, [profil, monId]);
+
+  const cote = Math.floor((width - space.lg * 2 - GOUTTIERE) / 2);
+
+  const ouvrir = useCallback((t: Track) => {
+    vibrer.action();
+    void Linking.openURL(lienVers(t));
+  }, []);
+
+  const estMoi = monId !== null && profil !== null && profil.id === monId;
+
+  return (
+    <View style={styles.screen}>
+      <ScrollView
+        contentContainerStyle={{ paddingTop: insets.top + space.sm, paddingBottom: space.xxl }}
+        showsVerticalScrollIndicator={false}
+      >
+        <Pressable
+          style={({ pressed }) => [styles.retour, pressed && styles.pale]}
+          onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Retour"
+          hitSlop={12}
+        >
+          <IconeRetour couleur={color.textMuted} />
+        </Pressable>
+
+        {loading ? (
+          <ActivityIndicator color={color.accent} style={styles.attente} />
+        ) : erreur !== null || !profil ? (
+          <View style={styles.vide}>
+            <Text style={styles.videTitre}>Introuvable</Text>
+            <Text style={styles.videTexte}>
+              Ce profil n'existe pas, ou son propriétaire a choisi de ne pas apparaître.
+            </Text>
+          </View>
+        ) : (
+          <>
+            <View style={styles.identite}>
+              <Visage uri={profil.avatar} taille={AVATAR} style={styles.avatarMarge} />
+              <Text style={styles.nom} numberOfLines={2}>
+                {profil.nom || 'Sans nom'}
+              </Text>
+              {profil.handle ? (
+                <Text style={styles.at} numberOfLines={1}>
+                  @{profil.handle}
+                </Text>
+              ) : null}
+            </View>
+
+            {/* Les compteurs. Abonnes et abonnements menent a leur liste ;
+                les gardes menent a la section du dessous, deja sous les yeux. */}
+            <View style={styles.comptes}>
+              <Pressable
+                style={styles.compte}
+                onPress={() => {
+                  vibrer.choix();
+                  router.push(`/gens/${encodeURIComponent(profil.id)}/gens?type=abonnes`);
+                }}
+                accessibilityRole="button"
+              >
+                <Text style={styles.compteNombre}>{profil.abonnes}</Text>
+                <Text style={styles.compteMot}>abonnés</Text>
+              </Pressable>
+              <Pressable
+                style={styles.compte}
+                onPress={() => {
+                  vibrer.choix();
+                  router.push(`/gens/${encodeURIComponent(profil.id)}/gens?type=abonnements`);
+                }}
+                accessibilityRole="button"
+              >
+                <Text style={styles.compteNombre}>{profil.abonnements}</Text>
+                <Text style={styles.compteMot}>abonnements</Text>
+              </Pressable>
+              <View style={styles.compte}>
+                <Text style={styles.compteNombre}>{profil.total}</Text>
+                <Text style={styles.compteMot}>gardés</Text>
+              </View>
+            </View>
+
+            {!estMoi ? (
+              <Pressable
+                style={[styles.suivre, profil.suivi ? styles.suiviActif : null]}
+                onPress={basculerSuivi}
+                accessibilityRole="button"
+                accessibilityLabel={profil.suivi ? 'Ne plus suivre' : 'Suivre'}
+              >
+                <Text style={[styles.suivreTexte, profil.suivi && styles.suivreTexteActif]}>
+                  {profil.suivi ? 'Suivi' : 'Suivre'}
+                </Text>
+              </Pressable>
+            ) : null}
+
+            {/* Le match ne se depasse plus en defilant.
+                C'etait une grille de pochettes au milieu du profil, qu'on
+                franchissait sans s'arreter. Or c'est la seule chose de
+                l'application qui parle de deux personnes a la fois, et la
+                raison pour laquelle on ouvre le profil de quelqu'un qui vous a
+                donne son lien. Elle devient une porte : un bandeau, les
+                premieres pochettes empilees, et derriere, les titres un par un
+                en grand, avec le son. */}
+            {profil.commun.length > 0 ? (
+              <Pressable
+                style={({ pressed }) => [styles.match, pressed && styles.pale]}
+                onPress={() => {
+                  vibrer.choix();
+                  router.push(`/gens/${encodeURIComponent(profil.id)}/commun`);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={`Voir vos ${profil.commun_total || profil.commun.length} titres en commun`}
+              >
+                <View style={styles.matchPile}>
+                  {profil.commun.slice(0, 3).map((t, k) => (
+                    <Image
+                      key={t.id}
+                      source={{ uri: t.cover }}
+                      style={[styles.matchPochette, k > 0 && styles.matchDecale]}
+                      contentFit="cover"
+                      cachePolicy="memory-disk"
+                      recyclingKey={`m-${t.id}`}
+                    />
+                  ))}
+                </View>
+                <View style={styles.matchTexte}>
+                  <Text style={styles.matchTitre}>
+                    <Text style={[styles.matchNombre, chiffres]}>
+                      {profil.commun_total || profil.commun.length}
+                    </Text>
+                    {` en commun`}
+                  </Text>
+                  <Text style={styles.matchSous} numberOfLines={1}>
+                    Gardés ou aimés par vous deux
+                  </Text>
+                </View>
+                <IconeChevron couleur={color.textFaint} />
+              </Pressable>
+            ) : null}
+
+            {profil.artistes.length > 0 ? (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitre}>Aime</Text>
+                <View style={styles.pastilles}>
+                  {profil.artistes.map((a) => (
+                    <View key={a.name} style={styles.pastille}>
+                      <Text style={styles.pastilleNom} numberOfLines={1}>
+                        {a.name}
+                      </Text>
+                      <Text style={styles.pastilleCompte} numberOfLines={1}>
+                        {a.count}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            ) : null}
+
+            {profil.gardes.length > 0 ? (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitre}>Gardés</Text>
+                <View style={styles.grille}>
+                  {profil.gardes.map((t) => (
+                    <Pressable
+                      key={t.id}
+                      style={({ pressed }) => [styles.carte, { width: cote }, pressed && styles.pale]}
+                      onPress={() => ouvrir(t)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${t.title} par ${t.artist.name}`}
+                    >
+                      <Image
+                        source={{ uri: t.cover }}
+                        style={[styles.pochette, { width: cote, height: cote }]}
+                        contentFit="cover"
+                        cachePolicy="memory-disk"
+                        recyclingKey={String(t.id)}
+                      />
+                      <Text style={styles.titreTitre} numberOfLines={1}>
+                        {t.title}
+                      </Text>
+                      <Text style={styles.titreArtiste} numberOfLines={1}>
+                        {t.artist.name}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            ) : (
+              <Text style={[styles.videTexte, { paddingHorizontal: space.lg }]}>
+                Rien gardé pour l'instant.
+              </Text>
+            )}
+          </>
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  avatarMarge: { marginBottom: space.xs },
+  match: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    marginTop: space.xl,
+    padding: space.md,
+    borderRadius: radius.md,
+    backgroundColor: color.bgElevated,
+  },
+  // Les pochettes se recouvrent : une pile de disques, pas une frise. Le
+  // recouvrement dit « il y en a d'autres derriere » sans l'ecrire.
+  matchPile: { flexDirection: 'row' },
+  matchPochette: {
+    width: 46,
+    height: 46,
+    borderRadius: radius.sm,
+    backgroundColor: color.bgSunken,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255, 255, 255, 0.22)',
+  },
+  matchDecale: { marginLeft: -18 },
+  matchTexte: { flex: 1, gap: 2 },
+  matchTitre: { ...type.lead, color: color.text },
+  matchNombre: { color: color.accent, fontWeight: '700' },
+  matchSous: { ...type.label, fontSize: 13, lineHeight: 18, color: color.textFaint },
+
+  screen: { flex: 1, backgroundColor: color.bg },
+  pale: { opacity: 0.5 },
+
+  retour: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: space.lg - space.md,
+  },
+
+  attente: { marginTop: space.xxl },
+
+  identite: { alignItems: 'center', gap: space.xs, paddingHorizontal: space.lg, marginTop: space.sm },
+  nom: { ...type.display, fontSize: 26, lineHeight: 32, color: color.text, textAlign: 'center' },
+  at: { ...type.label, fontSize: 13, lineHeight: 18, color: color.textFaint },
+
+  comptes: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: space.xl,
+    marginTop: space.lg,
+  },
+  compte: { alignItems: 'center', minHeight: 44, justifyContent: 'center' },
+  compteNombre: { ...type.title, ...chiffres, fontSize: 18, lineHeight: 24, color: color.text },
+  compteMot: { ...type.caption, fontSize: 12, lineHeight: 16, color: color.textFaint },
+
+  suivre: {
+    alignSelf: 'center',
+    marginTop: space.lg,
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: space.xl,
+    borderRadius: radius.full,
+    backgroundColor: color.accent,
+  },
+  suiviActif: {
+    backgroundColor: 'transparent',
+    borderWidth: 1.5,
+    borderColor: color.textFaint,
+  },
+  suivreTexte: { ...type.lead, fontWeight: '700', color: color.bg },
+  suivreTexteActif: { color: color.textMuted, fontWeight: '500' },
+
+  section: { marginTop: space.xl, paddingHorizontal: space.lg },
+  sectionTitre: { ...type.title, fontSize: 20, lineHeight: 26, color: color.text },
+  sectionNote: { ...type.label, fontSize: 13, lineHeight: 18, color: color.textFaint, marginTop: space.xs },
+  pastilles: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.md },
+  pastille: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    minHeight: 40,
+    paddingLeft: space.md,
+    paddingRight: space.sm,
+    borderRadius: radius.full,
+    backgroundColor: color.bgElevated,
+    maxWidth: 220,
+  },
+  pastilleNom: { ...type.body, fontSize: 15, lineHeight: 20, color: color.text, flexShrink: 1 },
+  pastilleCompte: { ...type.label, ...chiffres, fontSize: 13, lineHeight: 18, color: color.textFaint },
+
+  grille: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: GOUTTIERE,
+    marginTop: space.md,
+  },
+  carte: { gap: space.xs },
+  pochette: { borderRadius: radius.md, backgroundColor: color.bgElevated },
+  titreTitre: { ...type.label, fontSize: 13, lineHeight: 18, color: color.text, marginTop: space.xs },
+  titreArtiste: { ...type.label, fontSize: 13, lineHeight: 18, color: color.textFaint },
+
+  vide: { paddingHorizontal: space.lg, paddingTop: space.xxl, gap: space.sm },
+  videTitre: { ...type.title, color: color.text },
+  videTexte: { ...type.lead, color: color.textMuted },
+});

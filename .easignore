@@ -1,0 +1,16 @@
+# Ce que le build ne doit pas recevoir.
+#
+# EAS tourne ici **sans systeme de version** (il ne detecte pas git depuis ce
+# poste) : il archive donc le dossier de travail tel quel, et non le dernier
+# commit. C'est ce qu'on veut — le travail en cours part dans le build — mais
+# cela veut aussi dire que rien n'est exclu tout seul.
+node_modules/
+.expo/
+dist/
+web-build/
+.git/
+/ios
+/android
+bench/
+docs/
+*.log

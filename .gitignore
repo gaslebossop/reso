@@ -39,3 +39,7 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Signature Android : la cle et son mot de passe restent locaux.
+credentials.json
+credentials/
