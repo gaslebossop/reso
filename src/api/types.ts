@@ -221,6 +221,23 @@ export type Gen = {
  * `commun` n'est rendu que sur le profil des autres : ce sont les titres que
  * les deux comptes ont gardes — la seule section qui parle des deux.
  */
+
+/**
+ * Ce qu'une personne a fait d'un titre : elle l'a **garde** (il est entre en
+ * bibliotheque, c'est le geste fort) ou elle l'a **aime** (un swipe a droite,
+ * qui ne range rien).
+ */
+export type Geste = 'garde' | 'aime';
+
+/**
+ * Un titre en commun, et ce que chacun en a fait.
+ *
+ * Les deux gestes manquaient, et l'ecran qui montre ces titres un par un
+ * ecrivait donc la meme phrase pour tout le monde. `moi` et `autre` sont
+ * facultatifs : un moteur d'une version anterieure ne les rend pas, et
+ * l'ecran retombe alors sur sa phrase d'avant.
+ */
+export type TrackCommun = Track & { moi?: Geste; autre?: Geste };
 export type ProfilSocial = {
   id: string;
   handle: string;
@@ -233,7 +250,7 @@ export type ProfilSocial = {
   /** Est-ce que MOI suis ce profil ? Toujours faux sur le sien. */
   suivi: boolean;
   gardes: Track[];
-  commun: Track[];
+  commun: TrackCommun[];
   commun_total: number;
   /** Les artistes les plus aimes, du plus consensuel au plus personnel. */
   artistes: { name: string; count: number }[];

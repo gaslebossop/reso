@@ -84,7 +84,7 @@ export default function ChoixStyles() {
           ? propose.styles.map((s) => ({ nom: s.name, artistIds: s.artist_ids, artistes: s.artists }))
           : actif.styles.map((s) => ({ nom: s.name, artistIds: s.artist_ids, artistes: [] })),
       );
-      console.log(`[styles] ecran : ${propose.styles.length} proposes, ${actif.styles.length} actifs`);
+      if (__DEV__) console.log(`[styles] ecran : ${propose.styles.length} proposes, ${actif.styles.length} actifs`);
       setChargement(false);
     })();
 

@@ -25,7 +25,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 
 import { prisme } from '../../../src/api/client';
-import type { ProfilSocial, Track } from '../../../src/api/types';
+import type { ProfilSocial, TrackCommun } from '../../../src/api/types';
 import { player } from '../../../src/audio/player';
 import { ligneInterpretes, separerTitre } from '../../../src/api/titre';
 import { IconeRetour } from '../../../src/components/Icones';
@@ -73,6 +73,14 @@ import { vibrer } from '../../../src/state/vibration';
  * Tirer vers le **haut** ne fait rien, deliberement. Un ecran qui se ferme
  * dans les deux sens se ferme surtout par accident.
  *
+ * ## Ce que chaque titre raconte
+ *
+ * La mention sous la pochette **n'est pas la meme d'un titre a l'autre** :
+ * elle disait « vous l'avez tous les deux » pour tout le monde, alors que
+ * garder et aimer ne sont pas le meme geste — l'un range le titre, l'autre le
+ * laisse passer. Un ecran qui existe pour raconter une rencontre doit dire
+ * laquelle. Voir [[phraseDuMatch]].
+ *
  * ## L'extrait
  *
  * Le lecteur est celui du fil, et c'est voulu : deux lecteurs se disputeraient
@@ -118,7 +126,7 @@ export default function Commun() {
     }, [id]),
   );
 
-  const titres: Track[] = profil?.commun ?? [];
+  const titres: TrackCommun[] = profil?.commun ?? [];
   const courant = titres[n];
   const premier = n === 0;
   const dernier = n >= titres.length - 1;
@@ -252,7 +260,14 @@ export default function Commun() {
     <View style={styles.ecran}>
       <GestureDetector gesture={pan}>
         <Animated.View style={[styles.enveloppe, enveloppe]}>
-          <Scene key={courant.id} track={courant} largeur={width} x={x} onAller={aller} />
+          <Scene
+            key={courant.id}
+            track={courant}
+            mention={phraseDuMatch(courant, prenomDe(profil))}
+            largeur={width}
+            x={x}
+            onAller={aller}
+          />
 
           {/* Les segments, et sous eux le rappel de qui est en face : ouvert depuis
               un lien recu, on ne sait pas toujours chez qui on vient d'entrer. */}
@@ -292,6 +307,39 @@ function Fermer({ onPress, haut }: { onPress: () => void; haut: number }) {
 }
 
 /**
+ * Ce que vous avez fait de ce titre, tous les deux.
+ *
+ * Trois phrases, parce qu'il y a trois rencontres possibles et qu'elles ne se
+ * valent pas : deux gardes est le match fort — le titre est range des deux
+ * cotes —, deux « j'aime » est le croisement le plus courant, et le cas mixte
+ * est le plus interessant a lire parce qu'il dit **qui** a fait quoi.
+ *
+ * Le prenom plutot que le nom entier : la mention est en capitales sous une
+ * pochette, et « Jean-Baptiste De La Tour Fontaine l'a aime » y tiendrait sur
+ * trois lignes.
+ *
+ * Sans les deux gestes — un moteur d'une version anterieure —, on retombe sur
+ * la phrase d'avant, qui reste vraie : elle ne dit simplement pas laquelle.
+ */
+export function phraseDuMatch(t: TrackCommun, prenom: string): string {
+  const { moi, autre } = t;
+  if (!moi || !autre) return 'Vous l’avez tous les deux';
+  if (moi === autre) {
+    return moi === 'garde' ? 'Vous l’avez tous les deux gardé' : 'Vous l’avez tous les deux aimé';
+  }
+  return moi === 'garde'
+    ? `Tu l’as gardé, ${prenom} l’a aimé`
+    : `Tu l’as aimé, ${prenom} l’a gardé`;
+}
+
+/** Le prenom, ou le @handle a defaut. Ce qui tient dans une phrase courte. */
+function prenomDe(profil: ProfilSocial): string {
+  const nom = (profil.nom ?? '').trim();
+  if (nom) return nom.split(/\s+/)[0];
+  return profil.handle ? `@${profil.handle}` : 'l’autre';
+}
+
+/**
  * Un titre, plein ecran.
  *
  * Elle ne tient aucun geste : le doigt est ecoute une fois pour tout l'ecran,
@@ -304,11 +352,13 @@ function Fermer({ onPress, haut }: { onPress: () => void; haut: number }) {
  */
 function Scene({
   track,
+  mention,
   largeur,
   x,
   onAller,
 }: {
-  track: Track;
+  track: TrackCommun;
+  mention: string;
   largeur: number;
   x: SharedValue<number>;
   onAller: (pas: number) => void;
@@ -357,7 +407,9 @@ function Scene({
             cachePolicy="memory-disk"
             recyclingKey={String(track.id)}
           />
-          <Text style={styles.mention}>VOUS L'AVEZ TOUS LES DEUX</Text>
+          <Text style={styles.mention} numberOfLines={2}>
+            {mention}
+          </Text>
           <Text style={styles.titre} numberOfLines={2}>
             {titre}
           </Text>
@@ -394,7 +446,19 @@ const styles = StyleSheet.create({
   voile: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(8, 8, 10, 0.62)' },
 
   pochette: { borderRadius: radius.lg, backgroundColor: color.bgElevated, marginBottom: space.lg },
-  mention: { ...type.caption, fontSize: 12, letterSpacing: 1.4, color: color.accent },
+  // En capitales par le style et non dans le texte : la phrase porte un
+  // prenom, et l'ecrire deja crie interdirait de le rendre autrement un jour.
+  // `lineHeight` explicite parce qu'elle peut passer sur deux lignes.
+  mention: {
+    ...type.caption,
+    fontSize: 12,
+    lineHeight: 16,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    color: color.accent,
+    textAlign: 'center',
+    paddingHorizontal: space.xl,
+  },
   titre: {
     ...type.display,
     color: color.text,

@@ -16,7 +16,12 @@ import { color, space } from '../theme/tokens';
  */
 export function Etapes({ courante, total = 4 }: { courante: number; total?: number }) {
   return (
-    <View style={styles.rangee} accessibilityRole="progressbar">
+    <View
+      style={styles.rangee}
+      accessibilityRole="progressbar"
+      accessibilityLabel={`Étape ${courante} sur ${total}`}
+      accessibilityValue={{ min: 1, max: total, now: courante }}
+    >
       {Array.from({ length: total }, (_, i) => i + 1).map((n) => (
         <View key={n} style={[styles.segment, n <= courante && styles.segmentActif]} />
       ))}

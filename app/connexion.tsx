@@ -144,8 +144,6 @@ export default function Connexion() {
           )}
         </Pressable>
 
-        {compte.error ? <Text style={styles.erreur}>{compte.error}</Text> : null}
-
         <Pressable
           style={styles.plusTard}
           disabled={occupe}
@@ -154,6 +152,12 @@ export default function Connexion() {
         >
           <Text style={styles.plusTardTitre}>{suite ? 'Un instant…' : 'Plus tard'}</Text>
         </Pressable>
+
+        {/* Dernier enfant, volontairement : la porte etant ancree en bas,
+            l'erreur l'allonge vers le haut sans deplacer ni le CTA ni
+            « Plus tard ». Inseree entre les deux, elle faisait sauter le
+            bouton secondaire sous le pouce. */}
+        {compte.error ? <Text style={styles.erreur}>{compte.error}</Text> : null}
       </View>
     </View>
   );

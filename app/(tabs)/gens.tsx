@@ -490,7 +490,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: color.bg,
   },
-  badgeTexte: { ...type.caption, fontSize: 11, lineHeight: 13, color: color.bg, fontWeight: '800' },
+  badgeTexte: { ...type.caption, fontSize: 12, lineHeight: 15, color: color.bg, fontWeight: '800' },
 
   chiffres: {
     flexDirection: 'row',
@@ -547,7 +547,7 @@ const styles = StyleSheet.create({
   // horizontal qui s'arrete pile au bord ne se voit pas defiler.
   rangee: { gap: space.md, paddingRight: space.lg },
   tete: { width: 56, alignItems: 'center', gap: space.xs },
-  tetePrenom: { ...type.caption, fontSize: 12, lineHeight: 15, color: color.textFaint },
+  tetePrenom: { ...type.caption, fontSize: 13, lineHeight: 18, color: color.textFaint },
 
 
   // -- Bascule ------------------------------------------------------------

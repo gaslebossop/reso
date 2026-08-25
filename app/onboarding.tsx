@@ -53,7 +53,9 @@ export default function Onboarding() {
   // doit etre declaree telle quelle chez Spotify : on l'affiche pour pouvoir
   // la recopier sans se tromper.
   useEffect(() => {
-    console.log(`[spotify] redirect_uri a declarer : ${redirectUri()}`);
+    // Utile uniquement en developpement (declarer l'URI chez Spotify) :
+    // silencieux en production, ou cette adresse n'a aucun sens.
+    if (__DEV__) console.log(`[spotify] redirect_uri a declarer : ${redirectUri()}`);
   }, []);
 
   const charger = useCallback(() => {
@@ -411,7 +413,7 @@ const styles = StyleSheet.create({
   // Une fiche creuse se dit, elle ne se cache pas : c'est l'information la
   // plus utile de la ligne quand elle s'applique.
   ligneCreuse: { ...type.label, fontSize: 13, lineHeight: 17, color: color.alert },
-  ligneFans: { ...type.label, fontSize: 12, lineHeight: 16, color: color.textFaint },
+  ligneFans: { ...type.label, fontSize: 13, lineHeight: 18, color: color.textFaint },
   avatar: { width: 34, height: 34, borderRadius: radius.full, backgroundColor: color.bgSunken },
   chipText: { ...type.label, fontSize: 14, lineHeight: 20, color: color.textMuted, flexShrink: 1 },
   chipTextOn: { color: color.text },

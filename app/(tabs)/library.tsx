@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -200,6 +200,14 @@ export default function LibraryScreen() {
     setRefreshing(false);
   }, [load]);
 
+  /** Stables tous les deux : sans eux, `memo` sur `Pochette` ne comparait
+   *  que des fonctions neuves et ne servait a rien. */
+  const ouvrir = useCallback((t: Track) => setFiche(t), []);
+  const rendrePochette = useCallback(
+    ({ item }: { item: Track }) => <Pochette track={item} cote={cote} ouvre={ouvrir} />,
+    [cote, ouvrir],
+  );
+
   if (!compte.loading && !compte.connected) {
     return (
       <AccountGate
@@ -257,9 +265,7 @@ export default function LibraryScreen() {
               />
             ) : null
           }
-          renderItem={({ item }) => (
-            <Pochette track={item} cote={cote} onPress={() => setFiche(item)} />
-          )}
+          renderItem={rendrePochette}
         />
       )}
 
@@ -363,14 +369,16 @@ function Playlist({
  * loger. La pression enfonce la pochette, sans quoi rien ne dit que le tap a
  * ete pris.
  */
-function Pochette({
+function PochetteBase({
   track,
   cote,
-  onPress,
+  ouvre,
 }: {
   track: Track;
   cote: number;
-  onPress: () => void;
+  /** Le titre entier, pas une closure par ligne : c'est ce qui permet au
+   *  callback parent d'etre stable, donc a `memo` de servir a quelque chose. */
+  ouvre: (t: Track) => void;
 }) {
   const echelle = useSharedValue(1);
   const style = useAnimatedStyle(() => ({ transform: [{ scale: echelle.get() }] }));
@@ -385,7 +393,7 @@ function Pochette({
       onPressOut={() => echelle.set(withTiming(1, { duration: motion.press }))}
       onPress={() => {
         vibrer.action();
-        onPress();
+        ouvre(track);
       }}
     >
       <Animated.View style={style}>
@@ -407,6 +415,10 @@ function Pochette({
     </Pressable>
   );
 }
+
+/** Memoisee : sans elle, chaque ouverture de fiche ou pull-to-refresh
+ *  redessinait toutes les pochettes visibles, images comprises. */
+const Pochette = memo(PochetteBase);
 
 /**
  * La fiche d'un titre garde.
@@ -574,7 +586,7 @@ const styles = StyleSheet.create({
   playlistAction: { ...type.lead, color: color.accent },
   playlistSous: { ...type.label, fontSize: 13, lineHeight: 18, color: color.textFaint, flex: 1 },
   playlistAuto: { alignItems: 'center', gap: space.xs },
-  playlistMot: { ...type.caption, fontSize: 12, color: color.textFaint },
+  playlistMot: { ...type.caption, fontSize: 13, color: color.textFaint },
   pale: { opacity: 0.55 },
 
   screen: { flex: 1, backgroundColor: color.bg, paddingHorizontal: space.lg },

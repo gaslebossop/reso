@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Linking,
@@ -18,6 +18,7 @@ import type { ProfilSocial, Track } from '../../src/api/types';
 import { IconeChevron, IconeRetour } from '../../src/components/Icones';
 import { Visage } from '../../src/components/Visage';
 import { chargerPlateforme, lienVers } from '../../src/state/plateforme';
+import { useAccount } from '../../src/state/useAccount';
 import { vibrer } from '../../src/state/vibration';
 import { chiffres, color, radius, space, type } from '../../src/theme/tokens';
 
@@ -47,6 +48,11 @@ const GOUTTIERE = space.md;
 /** Le visage du profil. Passe en constante et non en feuille de styles :
  *  `Visage` en a besoin pour arrondir son repli au bon rayon. */
 const AVATAR = 88;
+
+/** Ma bibliotheque, une fois par session : chaque profil ouvert en aurait
+ *  besoin pour calculer l'affinite, et le casier ne change pas sous les
+ *  doigts assez vite pour justifier un aller-retour par visite. */
+let maBiblioSession: Track[] | null = null;
 
 export default function ProfilPublic() {
   const insets = useSafeAreaInsets();
@@ -151,6 +157,80 @@ export default function ProfilPublic() {
 
   const estMoi = monId !== null && profil !== null && profil.id === monId;
 
+  // --- Affinite -------------------------------------------------------------
+  const compte = useAccount();
+  const [maBiblio, setMaBiblio] = useState<Track[] | null>(maBiblioSession);
+
+  useEffect(() => {
+    if (!compte.connected || estMoi) {
+      setMaBiblio(null);
+      return;
+    }
+    if (maBiblioSession) {
+      setMaBiblio(maBiblioSession);
+      return;
+    }
+    let vivant = true;
+    prisme
+      .library()
+      .then((r) => {
+        maBiblioSession = r.tracks;
+        if (vivant) setMaBiblio(r.tracks);
+      })
+      .catch(() => {
+        // Bibliotheque indisponible : pas de carte d'affinite, silencieusement.
+        if (vivant) setMaBiblio([]);
+      });
+    return () => {
+      vivant = false;
+    };
+  }, [compte.connected, estMoi, profil?.id]);
+
+  /**
+   * L'affinite, et pourquoi cette formule.
+   *
+   * **Recouvrement du plus petit casier** : parmi les titres que chacun de
+   * nous a gardes en moins grand nombre, combien se retrouvent des deux cotes.
+   * Un Jaccard brut ecraserait les petits profils (deux gardes en commun sur
+   * deux cents font 2 %, pour un gout identique) ; la part du plus petit dit
+   * « quand on choisit peu, on choisit pareil ».
+   *
+   * Les artistes partages se comptent par nom contre MA bibliotheque ; le
+   * monde commun se lit dans vos gardes mutuels — c'est l'artiste qui fait
+   * que ce profil vous parle.
+   */
+  const affinite = useMemo(() => {
+    if (!profil || estMoi || !maBiblio || !compte.connected) return null;
+    const mes = maBiblio.length;
+    const ses = profil.total;
+    if (mes === 0 || ses === 0) return null;
+    const inter = Math.max(0, profil.commun_total || profil.commun.length);
+    const pct = Math.min(100, Math.round((100 * inter) / Math.min(mes, ses)));
+    if (inter === 0 && profil.artistes.length === 0) return null;
+
+    const nomsMien = new Set(maBiblio.map((t) => t.artist.name.trim().toLowerCase()));
+    const partages = profil.artistes.filter((a) => nomsMien.has(a.name.trim().toLowerCase())).length;
+
+    const freq = new Map<string, number>();
+    for (const t of profil.commun) {
+      const k = t.artist.name;
+      freq.set(k, (freq.get(k) ?? 0) + 1);
+    }
+    let monde: string | null = null;
+    let meilleur = 0;
+    for (const [nom, n] of freq) {
+      if (n > meilleur) {
+        meilleur = n;
+        monde = nom;
+      }
+    }
+
+    const mot =
+      pct >= 60 ? 'En résonance' : pct >= 35 ? 'Très proches' : pct >= 15 ? 'Des échos' : 'Deux mondes';
+
+    return { pct, mot, inter, partages, monde };
+  }, [profil, maBiblio, estMoi, compte.connected]);
+
   return (
     <View style={styles.screen}>
       <ScrollView
@@ -242,6 +322,42 @@ export default function ProfilPublic() {
                 donne son lien. Elle devient une porte : un bandeau, les
                 premieres pochettes empilees, et derriere, les titres un par un
                 en grand, avec le son. */}
+            {affinite ? (
+              <View style={styles.affinite}>
+                <View style={styles.affiniteHaut}>
+                  <View style={styles.affiniteDuo}>
+                    <Visage uri={compte.me?.picture ?? null} taille={38} style={styles.affiniteVisagePremier} />
+                    <Visage uri={profil.avatar} taille={38} style={styles.affiniteVisageSecond} />
+                  </View>
+                  <Text style={[styles.affinitePct, chiffres]}>{affinite.pct} %</Text>
+                  <Text style={[styles.affiniteMot, affinite.pct >= 35 && styles.affiniteMotVivant]}>
+                    {affinite.mot}
+                  </Text>
+                </View>
+
+                <View style={styles.affiniteLignes}>
+                  <View style={styles.affiniteLigne}>
+                    <Text style={styles.affiniteCle}>Titres gardés en commun</Text>
+                    <Text style={[styles.affiniteValeur, chiffres]}>{affinite.inter}</Text>
+                  </View>
+                  {affinite.partages > 0 ? (
+                    <View style={styles.affiniteLigne}>
+                      <Text style={styles.affiniteCle}>Artistes partagés</Text>
+                      <Text style={[styles.affiniteValeur, chiffres]}>{affinite.partages}</Text>
+                    </View>
+                  ) : null}
+                  {affinite.monde ? (
+                    <View style={styles.affiniteLigne}>
+                      <Text style={styles.affiniteCle}>Votre artiste en commun</Text>
+                      <Text style={styles.affiniteValeur} numberOfLines={1}>
+                        {affinite.monde}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+            ) : null}
+
             {profil.commun.length > 0 ? (
               <Pressable
                 style={({ pressed }) => [styles.match, pressed && styles.pale]}
@@ -271,7 +387,7 @@ export default function ProfilPublic() {
                     </Text>
                     {` en commun`}
                   </Text>
-                  <Text style={styles.matchSous} numberOfLines={1}>
+                  <Text style={styles.matchSous} numberOfLines={2}>
                     Gardés ou aimés par vous deux
                   </Text>
                 </View>
@@ -381,12 +497,66 @@ export default function ProfilPublic() {
 
 const styles = StyleSheet.create({
   avatarMarge: { marginBottom: space.xs },
+
+  // --- Banniere affinite ----------------------------------------------------
+  // Une carte calme : vos deux visages, le pourcentage, et ce qui l'explique
+  // en lignes sous filets. Pas de jauge, pas de couleur criee — la pochette
+  // du bandeau d'en dessous porte deja la couleur.
+  affinite: {
+    marginTop: space.xl,
+    marginHorizontal: space.lg,
+    paddingVertical: space.md,
+    paddingHorizontal: space.lg,
+    borderRadius: radius.md,
+    backgroundColor: color.bgElevated,
+    gap: space.sm,
+  },
+  affiniteHaut: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    paddingBottom: space.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: color.hairline,
+  },
+  affiniteDuo: { flexDirection: 'row', marginRight: space.xs },
+  affiniteVisagePremier: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255, 255, 255, 0.22)',
+    zIndex: 1,
+  },
+  affiniteVisageSecond: {
+    marginLeft: -12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255, 255, 255, 0.22)',
+  },
+  affinitePct: { ...type.display, fontSize: 24, lineHeight: 28, color: color.text },
+  affiniteMot: { ...type.label, fontSize: 13, lineHeight: 18, color: color.textFaint },
+  affiniteMotVivant: { color: color.accent },
+  affiniteLignes: {},
+  affiniteLigne: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.md,
+    paddingVertical: space.sm,
+  },
+  affiniteCle: { ...type.body, fontSize: 15, lineHeight: 20, color: color.textMuted, flexShrink: 1 },
+  affiniteValeur: { ...type.body, fontSize: 15, lineHeight: 20, color: color.text },
+
+  // Aligne sur la carte d'affinite juste au-dessus, et sur les sections en
+  // dessous : elle etait la seule chose de l'ecran collee aux deux bords, donc
+  // la seule a ne pas commencer sur la meme verticale que le reste. Meme
+  // marge exterieure (`space.lg`) ET meme retrait interieur, sinon le texte
+  // des deux cartes empilees ne demarre pas au meme endroit.
   match: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.md,
     marginTop: space.xl,
-    padding: space.md,
+    marginHorizontal: space.lg,
+    paddingVertical: space.md,
+    paddingHorizontal: space.lg,
     borderRadius: radius.md,
     backgroundColor: color.bgElevated,
   },
@@ -394,14 +564,14 @@ const styles = StyleSheet.create({
   // recouvrement dit « il y en a d'autres derriere » sans l'ecrire.
   matchPile: { flexDirection: 'row' },
   matchPochette: {
-    width: 46,
-    height: 46,
+    width: 42,
+    height: 42,
     borderRadius: radius.sm,
     backgroundColor: color.bgSunken,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255, 255, 255, 0.22)',
   },
-  matchDecale: { marginLeft: -18 },
+  matchDecale: { marginLeft: -16 },
   matchTexte: { flex: 1, gap: 2 },
   matchTitre: { ...type.lead, color: color.text },
   matchNombre: { color: color.accent, fontWeight: '700' },
@@ -432,7 +602,7 @@ const styles = StyleSheet.create({
   },
   compte: { alignItems: 'center', minHeight: 44, justifyContent: 'center' },
   compteNombre: { ...type.title, ...chiffres, fontSize: 18, lineHeight: 24, color: color.text },
-  compteMot: { ...type.caption, fontSize: 12, lineHeight: 16, color: color.textFaint },
+  compteMot: { ...type.caption, fontSize: 13, lineHeight: 18, color: color.textFaint },
 
   suivre: {
     alignSelf: 'center',
@@ -481,7 +651,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
     backgroundColor: color.bgElevated,
   },
-  suiviNom: { ...type.label, fontSize: 12, lineHeight: 16, color: color.textMuted },
+  suiviNom: { ...type.label, fontSize: 13, lineHeight: 18, color: color.textMuted },
 
   grille: {
     flexDirection: 'row',

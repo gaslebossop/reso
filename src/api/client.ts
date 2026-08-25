@@ -44,6 +44,10 @@ const LENT_MS = 1500;
  * c'est le seul segment invisible depuis les journaux du serveur.
  */
 function tracer(path: string, methode: string, debut: number, authMs: number, issue: string) {
+  // Chaque appel de l'app passait ici, y compris en production : des I/O
+  // console sur le chemin chaud, pour un journal que personne ne lit hors
+  // developpement. Les lenteurs cote moteur se lisent dans prisme.log.
+  if (!__DEV__) return;
   const total = Math.round(Date.now() - debut);
   const marque = total >= LENT_MS ? '!! LENT ' : '';
   const auth = authMs >= 50 ? ` (dont ${Math.round(authMs)} ms de jeton)` : '';
@@ -387,8 +391,21 @@ export const prisme = {
   unblock: (artistId: number) =>
     call<{ unblocked: number }>(`/blocked/${artistId}`, { method: 'DELETE' }),
 
+  /** La photo de profil personnelle.
+   *  `dataUrl` est un data URL JPEG deja recadre et redimensionne cote app
+   *  (512 px, compresse) : le moteur ne fait que stocker et diffuser.
+   *  Exige un compte du reseau G — l'avatar est une identite sociale. */
+  setAvatar: (dataUrl: string) =>
+    call<{ ok: boolean }>('/social/avatar', {
+      method: 'PUT',
+      body: JSON.stringify({ image: dataUrl }),
+    }),
+
+  /** Retire la photo personnelle : la photo du compte G redevient celle que
+   *  tout le monde voit. */
+  supprimerAvatar: () => call<{ ok: boolean }>('/social/avatar', { method: 'DELETE' }),
+
   /** Les reglages qui vivent sur le serveur.
-   *
    *  Ouverts aux appareils sans compte : la question de la decouverte est
    *  posee a la fin du demarrage, avant toute connexion. D'ou l'identifiant
    *  d'appareil, comme sur `/me`. */

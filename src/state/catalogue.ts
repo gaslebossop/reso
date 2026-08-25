@@ -4,11 +4,11 @@ import type { Artist } from '../api/types';
 /**
  * La grille d'artistes de l'amorcage, demandee une seule fois.
  *
- * Elle sert deux fois : le mur de pochettes de l'ecran d'accueil, puis la
- * grille ou l'on choisit ses artistes. Or elle coute cher — le moteur
- * interroge six palmares Deezer pour la composer. La demander des l'accueil et
- * la garder ici fait que l'ecran de choix est deja rempli quand on y arrive,
- * au lieu d'ouvrir sur un spinner.
+ * Elle sert a l'ecran de choix (« Qui ecoutes-tu ? »). Elle coute cher — le
+ * moteur interroge six palmares Deezer pour la composer — et l'appel est fait
+ * par l'ecran lui-meme au montage : le cache ci-dessous garantit qu'un aller-
+ * retour vers la porte du reseau G ou un simple re-render ne repaie jamais
+ * ces six palmares.
  *
  * Le cache vit le temps de l'application : ces palmares changent tous les
  * jours, et on ne veut pas les figer sur le disque.

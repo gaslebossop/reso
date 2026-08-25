@@ -202,9 +202,11 @@ export async function signIn(cfg: AuthConfig): Promise<Account | null> {
 
   if (!code) return null;
   // Le `state` est la seule chose qui distingue notre redirection d'une
-  // redirection fabriquee par quelqu'un d'autre. On ne l'exige que s'il a ete
-  // emis, mais des qu'il l'a ete il doit correspondre.
-  if (request.state && etat && etat !== request.state) {
+  // redirection fabriquee par quelqu'un d'autre. Il a forcement ete emis avec
+  // le code : **absent ou different, on rejette** — l'accepter ouvrait la
+  // porte a une redirection epuree de son state. PKCE protege deja l'echange,
+  // mais la hygiene ne coute qu'une condition.
+  if (request.state === null || etat !== request.state) {
     throw new GNetworkError('Réponse de connexion inattendue.');
   }
 
@@ -281,8 +283,17 @@ async function renouveler(
     const next = toTokens(fresh, t.refreshToken);
     await writeTokens(next);
     return next.accessToken;
-  } catch {
-    await signOut();
+  } catch (e) {
+    // **Seule une reponse de l'emetteur tue la session.** Un reseau qui lache,
+    // un timeout, une panne DNS : ce ne sont pas des fins de session, et y
+    // perdre les jetons etait une deconnexion silencieuse au milieu d'une
+    // poche — le pire moment. On ne deconnecte que quand l'emetteur dit
+    // explicitement que le jeton de rafraichissement est mort ; sinon on
+    // garde tout, et le prochain appel retentera.
+    const message = e instanceof Error ? e.message : String(e);
+    const status = (e as { status?: number } | null)?.status;
+    const mort = status === 400 || status === 401 || /invalid_grant|invalid_request|unauthorized_client/i.test(message);
+    if (mort) await signOut();
     return null;
   }
 }

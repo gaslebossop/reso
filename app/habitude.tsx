@@ -35,8 +35,13 @@ import { color, radius, space, type } from '../src/theme/tokens';
  */
 
 /** Ce que le moteur s'autorise. Le vrai plancher et le vrai plafond viennent
- *  de `/prefs` ; ceux-ci ne servent qu'a dessiner avant sa reponse. */
-const MIN = 0.1;
+ *  de `/prefs` ; ceux-ci ne servent qu'a dessiner avant sa reponse.
+ *
+ *  **Familier vaut zero.** C'est la promesse du reglage : aucune carte « hors
+ *  de tes habitudes » tant qu'il n'est pas change. Le moteur accepte
+ *  desormais ce zero (le plancher serveur ne s'applique qu'a son automatique).
+ */
+const FAMILIER = 0;
 const MAX = 0.55;
 
 type Reponse = {
@@ -53,9 +58,9 @@ const REPONSES: Reponse[] = [
   {
     cle: 'peu',
     mot: 'De temps en temps',
-    dit: 'Reso reste près de ce que tu connais.',
-    valeur: MIN,
-    part: MIN,
+    dit: 'Reso reste dans ce que tu connais. Rien d’inconnu.',
+    valeur: FAMILIER,
+    part: FAMILIER,
   },
   {
     cle: 'souvent',
@@ -73,15 +78,23 @@ const REPONSES: Reponse[] = [
   },
 ];
 
+/** La reponse par defaut : **Familier**, pour tout le monde.
+ *
+ *  L'ecran reste visible pour qui veut monter le curseur, mais « Ouvrir le
+ *  fil » fonctionne sans toucher — et ce que quelqu'un n'a pas choisi ne doit
+ *  pas lui servir d'inconnu. */
+const DEFAUT = REPONSES[0].cle;
+
 export default function Habitude() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const [choisi, setChoisi] = useState<string | null>(null);
+  const [choisi, setChoisi] = useState<string | null>(DEFAUT);
   const [occupe, setOccupe] = useState(false);
 
   // Une seule valeur animee pour tout l'ecran : la part de decouverte. La
   // bande et le libelle en decoulent, donc rien ne peut se desynchroniser.
-  const part = useSharedValue(0.3);
+  // Elle demarre sur la reponse par defaut (Familier), pas sur un milieu.
+  const part = useSharedValue(REPONSES[0].part);
 
   const repondre = useCallback(
     (r: Reponse) => {

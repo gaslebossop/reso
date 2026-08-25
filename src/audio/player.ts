@@ -405,6 +405,9 @@ class PreviewPlayer {
   }
 
   private trace(msg: string) {
+    // Diagnostique precieux en developpement, I/O de plus sur le chemin chaud
+    // en production : chaque swipe, chaque preload, chaque releve passait ici.
+    if (!__DEV__) return;
     console.log(`[snd ${Date.now() % 100000}] ${msg} cur=${this.currentId} gen=${this.generation}`);
   }
 
@@ -890,14 +893,28 @@ class PreviewPlayer {
     })();
   }
 
-  /** Position de lecture en millisecondes — la matiere du signal envoye au moteur. */
+  /** Position de lecture en millisecondes — la matiere du signal envoye au moteur.
+   *
+   *  Le lecteur peut avoir ete rendu au systeme entre le test `current` et la
+   *  lecture de sa propriete (un swipe qui declenche `discard`) : lire leve
+   *  alors, et l'exception partirait dans le handler du geste. Zero est la
+   *  reponse honnete d'un lecteur mort — un skip a zero milliseconde, pas un
+   *  crash. */
   positionMs(): number {
-    return Math.max(0, (this.current?.currentTime ?? 0) * 1000);
+    try {
+      return Math.max(0, (this.current?.currentTime ?? 0) * 1000);
+    } catch {
+      return 0;
+    }
   }
 
   durationMs(): number {
-    const d = (this.current?.duration ?? 0) * 1000;
-    return d > 0 && Number.isFinite(d) ? d : 30000;
+    try {
+      const d = (this.current?.duration ?? 0) * 1000;
+      return d > 0 && Number.isFinite(d) ? d : 30000;
+    } catch {
+      return 30000;
+    }
   }
 
   /** Libere tout sauf les titres encore utiles. */

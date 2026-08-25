@@ -494,7 +494,7 @@ const styles = StyleSheet.create({
   ligneTitre: { ...type.body, fontSize: 15, lineHeight: 20, color: color.text },
   ligneSous: { ...type.label, fontSize: 13, lineHeight: 18, color: color.textFaint },
   ligneCreuse: { color: color.alert },
-  ligneFans: { ...type.label, fontSize: 12, lineHeight: 16, color: color.textFaint },
+  ligneFans: { ...type.label, fontSize: 13, lineHeight: 18, color: color.textFaint },
   marque: {
     width: 28,
     height: 28,

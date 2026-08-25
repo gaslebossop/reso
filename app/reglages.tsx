@@ -1,5 +1,7 @@
 import Constants from 'expo-constants';
 import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { useRouter } from 'expo-router';
 import { Fragment, isValidElement, useCallback, useEffect, useState } from 'react';
 import {
@@ -109,8 +111,10 @@ function intentions(p: Prefs | null): Intention[] {
     {
       cle: 'sur',
       mot: 'Familier',
-      dit: 'Surtout ce qui ressemble à ce que tu aimes déjà.',
-      valeur: p?.discovery_min ?? 0.1,
+      dit: 'Rien d’inconnu. Surtout ce qui ressemble à ce que tu aimes déjà.',
+      // Zero explicite, pas le plancher du moteur : « Familier » promet
+      // l'absence totale d'inconnu, et le serveur l'accepte desormais.
+      valeur: 0,
     },
     {
       cle: 'auto',
@@ -338,6 +342,65 @@ export default function Reglages() {
   // avoir change d'avis.
   const montrerSpotify = isSpotifyConfigured() && (plate === 'spotify' || spot.relie);
 
+  // --- La photo de profil ----------------------------------------------------
+  // Galerie → recadrage natif carree → 512 px JPEG → data URL vers le moteur.
+  // Le recadrage est celui du systeme : c'est le seul que tout le monde sait
+  // deja utiliser, et il evite de reinventer un crop maison.
+  const [photoOccupe, setPhotoOccupe] = useState(false);
+  const [photoDit, setPhotoDit] = useState<string | null>(null);
+
+  const changerPhoto = useCallback(async () => {
+    if (photoOccupe) return;
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      setPhotoDit("L'accès aux photos est refusé.");
+      return;
+    }
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 1,
+      exif: false,
+    });
+    if (res.canceled || !res.assets[0]) return;
+    setPhotoOccupe(true);
+    setPhotoDit(null);
+    try {
+      const rendu = await ImageManipulator.manipulate(res.assets[0].uri)
+        .resize({ width: 512 })
+        .renderAsync();
+      const sortie = await rendu.saveAsync({
+        compress: 0.85,
+        format: SaveFormat.JPEG,
+        base64: true,
+      });
+      if (!sortie.base64) throw new Error('Image illisible.');
+      const dataUrl = `data:image/jpeg;base64,${sortie.base64}`;
+      await prisme.setAvatar(dataUrl);
+      await refreshAccount();
+      setPhotoDit('Photo mise à jour.');
+    } catch (e) {
+      setPhotoDit(e instanceof Error ? e.message : 'Impossible de changer la photo.');
+    } finally {
+      setPhotoOccupe(false);
+    }
+  }, [photoOccupe]);
+
+  const retirerPhoto = useCallback(async () => {
+    setPhotoOccupe(true);
+    setPhotoDit(null);
+    try {
+      await prisme.supprimerAvatar();
+      await refreshAccount();
+      setPhotoDit('Photo retirée.');
+    } catch {
+      setPhotoDit('Impossible de retirer la photo.');
+    } finally {
+      setPhotoOccupe(false);
+    }
+  }, [photoOccupe]);
+
   return (
     <ScrollView
       style={styles.screen}
@@ -357,19 +420,47 @@ export default function Reglages() {
       {/* --- L'etiquette ------------------------------------------------- */}
       <View style={styles.etiquette}>
         {compte.connected ? (
-          <View style={styles.identite}>
-            <Visage uri={compte.me?.picture ?? null} taille={64} />
-            <View style={styles.identiteTexte}>
-              <Text style={styles.nom} numberOfLines={1}>
-                {compte.me?.name ?? 'Compte du réseau G'}
-              </Text>
-              {compte.me?.email ? (
-                <Text style={styles.mail} numberOfLines={1}>
-                  {compte.me.email}
+          <>
+            <View style={styles.identite}>
+              <Visage uri={compte.me?.picture ?? null} taille={64} />
+              <View style={styles.identiteTexte}>
+                <Text style={styles.nom} numberOfLines={1}>
+                  {compte.me?.name ?? 'Compte du réseau G'}
                 </Text>
-              ) : null}
+                {compte.me?.email ? (
+                  <Text style={styles.mail} numberOfLines={1}>
+                    {compte.me.email}
+                  </Text>
+                ) : null}
+              </View>
             </View>
-          </View>
+
+            {/* Changer / retirer la photo de profil. La galerie ouvre le
+                recadrage carre du systeme ; l'envoi part apres compression. */}
+            <View style={styles.photoActions}>
+              <Pressable
+                style={({ pressed }) => [styles.photoAction, pressed && styles.pale]}
+                onPress={changerPhoto}
+                disabled={photoOccupe}
+                accessibilityRole="button"
+                accessibilityLabel="Changer la photo de profil"
+              >
+                <Text style={[styles.photoActionTexte, photoOccupe && styles.pale]}>
+                  {photoOccupe ? 'Envoi…' : 'Changer la photo'}
+                </Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.photoAction, pressed && styles.pale]}
+                onPress={retirerPhoto}
+                disabled={photoOccupe}
+                accessibilityRole="button"
+                accessibilityLabel="Retirer la photo de profil"
+              >
+                <Text style={[styles.photoActionTexte, styles.photoActionRetrait]}>Retirer</Text>
+              </Pressable>
+            </View>
+            {photoDit ? <Text style={styles.photoDit}>{photoDit}</Text> : null}
+          </>
         ) : null}
 
         <Text style={styles.phrase}>
@@ -903,6 +994,17 @@ const styles = StyleSheet.create({
   identiteTexte: { flex: 1, gap: 2 },
   nom: { ...type.title, color: color.text },
   mail: { ...type.body, fontSize: 15, lineHeight: 20, color: color.textFaint },
+
+  photoActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.lg,
+    marginTop: space.sm,
+  },
+  photoAction: { minHeight: 32, justifyContent: 'center' },
+  photoActionTexte: { ...type.label, fontSize: 13, lineHeight: 18, color: color.accent },
+  photoActionRetrait: { color: color.textFaint },
+  photoDit: { ...type.caption, fontSize: 13, lineHeight: 18, color: color.textFaint, marginTop: space.xs },
 
   // La signature de l'ecran, et la seule chose ecrite en grand. Meme traitement
   // que l'ouverture de « Ton Prisme » : les deux ecrans doivent parler de la

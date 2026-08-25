@@ -158,11 +158,13 @@ export function useFeed(enabled: boolean) {
       const msPlayed = Math.min(player.positionMs(), Date.now() - startedAt.current);
       const previewMs = player.durationMs();
 
-      setState((s) => {
-        const rest = s.cards.slice(1);
-        if (rest.length <= REFILL_AT) void load('append');
-        return { ...s, cards: rest };
-      });
+      // La mise a jour reste **pure** — React se reserve le droit de la
+      // rejouer, et elle contenait un effet de bord (le refill) qui aurait
+      // pu partir deux fois. Le reste est calcule ici, hors updater ; le
+      // refill, lui, part apres coup, garde par `fetching`.
+      const rest = state.cards.slice(1);
+      setState((s) => ({ ...s, cards: s.cards.slice(1) }));
+      if (rest.length <= REFILL_AT) void load('append');
 
       // Fire-and-forget : aucun swipe n'attend le reseau. Un evenement perdu
       // degrade l'apprentissage, jamais l'experience : la carte est deja

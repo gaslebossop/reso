@@ -24,6 +24,14 @@ import type { Track } from '../api/types';
 
 WebBrowser.maybeCompleteAuthSession();
 
+/** Le journal [spotify], **muet en production**.
+ *
+ *  Ces lignes ont sauve des diagnostiques (le faux 403 de `PUT /me/tracks`,
+ *  les portees accordees) ; elles n'ont pas a couter des I/O console ni a
+ *  noyer le journal chez quelqu'un qui ecoute. Meme signature que
+ *  `console.log` : aucun appel n'a change de forme. */
+const log = __DEV__ ? console.log.bind(console) : () => {};
+
 const CLIENT_ID = process.env.EXPO_PUBLIC_SPOTIFY_CLIENT_ID ?? '';
 
 const discovery: AuthSession.DiscoveryDocument = {
@@ -320,7 +328,7 @@ async function echanger(forcerConsentement: boolean): Promise<AuthSession.TokenR
   // Ce que Spotify a REELLEMENT accorde. C'est la ligne qui aurait fait gagner
   // le diagnostic du 403 : demander quatre portees et en recevoir deux ne
   // produit aucune erreur au moment de la connexion.
-  console.log(`[spotify] portees accordees : ${token.scope ?? '(aucune annoncee)'}`);
+  log(`[spotify] portees accordees : ${token.scope ?? '(aucune annoncee)'}`);
   return token;
 }
 
@@ -387,7 +395,7 @@ export async function ajouterAuxLikes(t: Track): Promise<boolean> {
     // Le corps entier, pas seulement `error.message` : c'est ce qui manquait
     // pour distinguer un refus de portee d'un point d'entree disparu.
     const brut = await res.text().catch(() => '');
-    console.log(`[spotify] PUT /me/library -> ${res.status} ${brut}`);
+    log(`[spotify] PUT /me/library -> ${res.status} ${brut}`);
     if (res.status === 403) {
       throw new SpotifyError(
         "Spotify refuse l'ajout alors que la permission est accordee. Si " +
@@ -458,7 +466,7 @@ export async function diagnostiquer(): Promise<string> {
   );
 
   const texte = lignes.join('\n');
-  console.log(`[spotify] diagnostic\n${texte}`);
+  log(`[spotify] diagnostic\n${texte}`);
   return texte;
 }
 
@@ -648,8 +656,8 @@ async function topArtists(accessToken: string): Promise<SpotifyTaste> {
   // silence qui a fait chercher le probleme cote moteur alors qu'il etait ici.
   lots.forEach((l, i) => {
     const src = SOURCES[i].chemin;
-    if (l.status === 'fulfilled') console.log(`[spotify] ${src} -> ${l.value.noms.length} artistes`);
-    else console.log(`[spotify] ${src} -> ECHEC : ${(l.reason as Error)?.message ?? l.reason}`);
+    if (l.status === 'fulfilled') log(`[spotify] ${src} -> ${l.value.noms.length} artistes`);
+    else log(`[spotify] ${src} -> ECHEC : ${(l.reason as Error)?.message ?? l.reason}`);
   });
 
   const retenus = lots.filter((l) => l.status === 'fulfilled').map((l) => l.value);
@@ -839,14 +847,14 @@ async function likes(accessToken: string, premier: string): Promise<Pesee[]> {
     const { code, page } = await sonder(accessToken, depart);
     const premieres = entrees(page);
     const nommees = premieres.filter((it) => artisteDeLike(it).length > 0);
-    console.log(
+    log(
       `[spotify] likes via ${depart} -> ${code}, ${premieres.length} entrees, ${nommees.length} avec artiste`,
     );
     if (nommees.length === 0) continue;
     return paginerLikes(accessToken, page as Page);
   }
 
-  console.log(
+  log(
     '[spotify] aucun point d entree ne rend les titres likes — ' +
       'ni me/library ni me/tracks. Les autres sources restent.',
   );
@@ -873,7 +881,7 @@ async function paginerLikes(accessToken: string, premiere: Page): Promise<Pesee[
     page = suite ? (await sonder(accessToken, suite)).page : null;
   }
 
-  console.log(`[spotify] ${lus} titres likes lus, ${sortie.length} artistes retenus`);
+  log(`[spotify] ${lus} titres likes lus, ${sortie.length} artistes retenus`);
   return sortie;
 }
 
@@ -901,7 +909,7 @@ async function suivis(accessToken: string, chemin: string): Promise<Pesee[]> {
     // fevrier 2026 : s'il a disparu, on veut le lire dans la console, pas le
     // deduire d'une liste courte.
     if (premier) {
-      console.log(`[spotify] suivis via ${url} -> ${code}, ${page?.artists?.items?.length ?? 0} artistes`);
+      log(`[spotify] suivis via ${url} -> ${code}, ${page?.artists?.items?.length ?? 0} artistes`);
       premier = false;
     }
     if (!page) break;
@@ -942,7 +950,7 @@ async function playlists(accessToken: string, chemin: string): Promise<Pesee[]> 
   while (url && listes.length < MAX_PLAYLISTS) {
     const { code, page }: { code: number; page: Page | null } = await sonder(accessToken, url);
     if (premier) {
-      console.log(`[spotify] playlists via ${url} -> ${code}, ${page?.items?.length ?? 0} listes`);
+      log(`[spotify] playlists via ${url} -> ${code}, ${page?.items?.length ?? 0} listes`);
       premier = false;
     }
     if (!page) break;
@@ -1001,7 +1009,7 @@ async function playlists(accessToken: string, chemin: string): Promise<Pesee[]> 
     }
   }
 
-  console.log(
+  log(
     `[spotify] ${listes.length} playlists ouvertes (${listes.filter((l) => l.mienne).length} a moi), ` +
       `${lus} titres lus, ${sortie.length} artistes retenus`,
   );
@@ -1021,7 +1029,7 @@ async function albums(accessToken: string, chemin: string): Promise<Pesee[]> {
   while (url && sortie.length < PLAFOND_SUIVIS) {
     const { code, page }: { code: number; page: Page | null } = await sonder(accessToken, url);
     if (premier) {
-      console.log(`[spotify] albums via ${url} -> ${code}, ${page?.items?.length ?? 0} albums`);
+      log(`[spotify] albums via ${url} -> ${code}, ${page?.items?.length ?? 0} albums`);
       premier = false;
     }
     if (!page) break;

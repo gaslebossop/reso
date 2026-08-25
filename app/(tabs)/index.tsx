@@ -226,7 +226,7 @@ export default function FilScreen() {
    *  continue a jouer seule dans la poche est desinstallee le jour meme. */
   useEffect(() => {
     const sub = AppState.addEventListener('change', (s) => {
-      console.log(`[snd] AppState -> ${s}`);
+      if (__DEV__) console.log(`[snd] AppState -> ${s}`);
       // Ne couper que sur un vrai passage en arriere-plan. iOS emet aussi
       // `inactive` pour des broutilles transitoires — centre de controle
       // entrouvert, banniere de notification, selecteur d'apps — et couper le
