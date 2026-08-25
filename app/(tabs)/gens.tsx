@@ -18,6 +18,7 @@ import { prisme } from '../../src/api/client';
 import { fansLisibles } from '../../src/api/titre';
 import type { Artist, Gen, ProfilSocial } from '../../src/api/types';
 import { AccountGate } from '../../src/components/AccountGate';
+import { NomVerifie } from '../../src/components/NomVerifie';
 import { Visage } from '../../src/components/Visage';
 import { IconeChevron, IconeCloche, IconePartage } from '../../src/components/Icones';
 import { rafraichirNotifs, useNouvellesNotifs } from '../../src/state/notifs';
@@ -303,9 +304,12 @@ export default function GensScreen() {
         >
           <Visage uri={moi?.avatar} taille={72} />
           <View style={styles.identiteTexte}>
-            <Text style={styles.nom} numberOfLines={1}>
-              {moi?.nom || 'Toi'}
-            </Text>
+            <NomVerifie
+              nom={moi?.nom || 'Toi'}
+              verifie={moi?.verifie}
+              style={styles.nom}
+              taille={16}
+            />
             <Text style={styles.arobase} numberOfLines={1}>
               {moi?.handle ? `@${moi.handle}` : '…'}
             </Text>
@@ -410,9 +414,11 @@ export default function GensScreen() {
               >
                 <Visage uri={g.avatar} taille={48} />
                 <View style={styles.rangTexte}>
-                  <Text style={styles.rangNom} numberOfLines={1}>
-                    {g.nom || 'Sans nom'}
-                  </Text>
+                  <NomVerifie
+                    nom={g.nom || 'Sans nom'}
+                    verifie={g.verifie}
+                    style={styles.rangNom}
+                  />
                   <Text style={styles.sous} numberOfLines={1}>
                     {[g.handle ? `@${g.handle}` : null, `${g.gardes} gardé${g.gardes > 1 ? 's' : ''}`]
                       .filter(Boolean)
@@ -453,9 +459,7 @@ export default function GensScreen() {
                     recyclingKey={String(a.id)}
                   />
                   <View style={styles.rangTexte}>
-                    <Text style={styles.rangNom} numberOfLines={1}>
-                      {a.name}
-                    </Text>
+                    <NomVerifie nom={a.name} verifie={a.verifie} style={styles.rangNom} />
                     {abonnes ? (
                       <Text style={styles.sous} numberOfLines={1}>
                         {abonnes} sur Deezer

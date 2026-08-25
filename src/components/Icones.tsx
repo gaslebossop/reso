@@ -1,5 +1,7 @@
 import Svg, { Path, Rect } from 'react-native-svg';
 
+import { color } from '../theme/tokens';
+
 /**
  * Les trois icones de la barre du bas.
  *
@@ -327,31 +329,60 @@ export function IconeCoche({ couleur, taille = GRILLE }: { couleur: string; tail
 }
 
 /**
- * La pastille de la fiche principale.
+ * Le badge verifie.
  *
- * Une coche dans un disque plein — la forme que tout le monde lit comme
- * « c'est bien lui », sans avoir a l'expliquer.
+ * ## Ce qu'il dit
  *
- * Aplat et non contour, contrairement a la plupart des icones d'ici : elle se
- * pose a cote d'un nom, a douze pixels, et un contour a cette taille se
- * refermerait en tache. C'est aussi ce qui la distingue de [[IconeCoche]],
- * qui dit un etat qu'on a choisi la ou celle-ci dit un fait constate.
+ * « Cette fiche-la est bien celle de cet artiste-la », « ce compte-la est bien
+ * cette personne-la ». Pas « il est bon », pas « il est connu » — meme si le
+ * moteur se sert de la notoriete comme d'un indice, c'est pour trancher une
+ * question d'identite. Le calcul vit cote moteur (`Verifies.scala`) et arrive
+ * en un seul drapeau : l'app ne decide de rien ici, elle dessine.
+ *
+ * ## Pourquoi une rosace et pas un disque
+ *
+ * Le dessin precedent etait un disque lisse, et il servait a dire « parmi les
+ * fiches homonymes, c'est la vraie ». Un disque a coche se lit comme une
+ * validation — le meme objet que la coche d'une case qu'on vient de cocher.
+ * La **rosace crantee** est la forme que tout le monde a apprise ailleurs
+ * comme voulant dire « verifie », et elle ne ressemble a aucun autre element
+ * de cette app : c'est ce qui la rend lisible a douze pixels sans legende.
+ *
+ * Les douze crans sont obtenus par un polygone a rayons alternes, arrondi par
+ * un contour de la meme couleur en jointures rondes. Douze points francs
+ * feraient une etoile ; c'est l'arrondi qui en fait un sceau.
+ *
+ * ## Pourquoi vert
+ *
+ * Voir `color.verifie`. En resume : l'accent teal est deja le « j'aime » du
+ * fil, et deux marques de la meme couleur finissent par ne plus rien dire ni
+ * l'une ni l'autre.
+ *
+ * La coche est evidee dans la couleur du fond et non peinte en blanc : sur la
+ * pastille pleine, un blanc pur serait le point le plus lumineux de l'ecran a
+ * cote d'un nom qu'on cherche a lire.
  */
 export function IconePastilleVerifiee({
-  couleur,
+  couleur = color.verifie,
   taille = 14,
 }: {
-  couleur: string;
+  couleur?: string;
   taille?: number;
 }) {
   return (
     <Cadre taille={taille}>
-      <Path d="M12 2.2 a9.8 9.8 0 1 1 0 19.6 a9.8 9.8 0 0 1 0-19.6 z" fill={couleur} />
       <Path
-        d="M7.4 12.3 L10.6 15.4 L16.6 9.2"
+        d="M12.00 2.85 L13.95 4.71 L16.57 4.08 L17.34 6.66 L19.92 7.42 L19.29 10.05 L21.15 12.00 L19.29 13.95 L19.92 16.57 L17.34 17.34 L16.57 19.92 L13.95 19.29 L12.00 21.15 L10.05 19.29 L7.43 19.92 L6.66 17.34 L4.08 16.58 L4.71 13.95 L2.85 12.00 L4.71 10.05 L4.08 7.42 L6.66 6.66 L7.42 4.08 L10.05 4.71 Z"
+        fill={couleur}
+        stroke={couleur}
+        strokeWidth={2.2}
+        strokeLinejoin="round"
+      />
+      <Path
+        d="M7.9 12.2 L10.7 15 L16.1 9.4"
         fill="none"
-        stroke="#0B0C0E"
-        strokeWidth={2.4}
+        stroke={color.bg}
+        strokeWidth={2.3}
         strokeLinecap="round"
         strokeLinejoin="round"
       />

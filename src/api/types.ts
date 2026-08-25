@@ -25,6 +25,17 @@ export type Artist = {
   /**
    * C'est la fiche principale pour ce nom.
    *
+   * **Plus dessine nulle part — `verifie` a pris sa place.** Le drapeau
+   * n'etait calculable que dans une recherche : il fallait le mot tape et le
+   * groupe d'homonymes. Sur la fiche d'un artiste, ouverte depuis une carte
+   * du fil, il n'y a ni l'un ni l'autre — le meme artiste portait donc la
+   * pastille dans la liste de resultats et la perdait une fois sa fiche
+   * ouverte. Un badge qui clignote d'un ecran a l'autre ne se lit plus comme
+   * un fait.
+   *
+   * Le moteur continue de l'envoyer pour les APK deja installes, qui le
+   * lisent encore.
+   *
    * **Deezer n'expose aucune certification** : ce drapeau ne dit pas « compte
    * verifie », il dit « parmi les fiches qui portent ce nom, c'est celle-la
    * la vraie ». Le moteur ne le leve que sans ambiguite — la fiche doit
@@ -34,6 +45,21 @@ export type Artist = {
    * est pire que pas de badge, puisqu'on cesse alors de lire les titres.
    */
   principal?: boolean;
+
+  /**
+   * Le badge verifie.
+   *
+   * Dit « c'est bien lui », et rien d'autre — ni « il est bon », ni « il est
+   * connu ». Le moteur le decide seul (`Verifies.scala`) a partir de deux
+   * choses : une liste curee a la main, et un seuil d'abonnes Deezer
+   * au-dessus duquel une fiche ne peut plus etre confondue avec un doublon de
+   * distributeur.
+   *
+   * Facultatif : un moteur d'une version anterieure ne le rend pas, et
+   * l'absence vaut « non verifie » — l'app n'affiche alors aucune pastille,
+   * ce qui est exactement ce qu'elle faisait avant.
+   */
+  verifie?: boolean;
 };
 
 export type Track = {
@@ -266,6 +292,21 @@ export type Gen = {
   nom: string;
   avatar: string;
   gardes: number;
+
+  /**
+   * Le badge verifie.
+   *
+   * Dit « c'est bien lui », et rien d'autre — ni « il est bon », ni « il est
+   * connu ». Le moteur le decide seul (`Verifies.scala`) a partir de deux
+   * choses : une liste curee a la main, et un seuil d'abonnes Deezer
+   * au-dessus duquel une fiche ne peut plus etre confondue avec un doublon de
+   * distributeur.
+   *
+   * Facultatif : un moteur d'une version anterieure ne le rend pas, et
+   * l'absence vaut « non verifie » — l'app n'affiche alors aucune pastille,
+   * ce qui est exactement ce qu'elle faisait avant.
+   */
+  verifie?: boolean;
 };
 
 /**
@@ -300,6 +341,21 @@ export type ProfilSocial = {
   handle: string;
   nom: string;
   avatar: string;
+
+  /**
+   * Le badge verifie.
+   *
+   * Dit « c'est bien lui », et rien d'autre — ni « il est bon », ni « il est
+   * connu ». Le moteur le decide seul (`Verifies.scala`) a partir de deux
+   * choses : une liste curee a la main, et un seuil d'abonnes Deezer
+   * au-dessus duquel une fiche ne peut plus etre confondue avec un doublon de
+   * distributeur.
+   *
+   * Facultatif : un moteur d'une version anterieure ne le rend pas, et
+   * l'absence vaut « non verifie » — l'app n'affiche alors aucune pastille,
+   * ce qui est exactement ce qu'elle faisait avant.
+   */
+  verifie?: boolean;
   visible: boolean;
   total: number;
   abonnes: number;

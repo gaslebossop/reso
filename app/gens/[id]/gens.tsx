@@ -8,6 +8,7 @@ import { prisme } from '../../../src/api/client';
 import { fansLisibles } from '../../../src/api/titre';
 import type { Artist, Gen } from '../../../src/api/types';
 import { IconeChevron, IconeRetour } from '../../../src/components/Icones';
+import { NomVerifie } from '../../../src/components/NomVerifie';
 import { Visage } from '../../../src/components/Visage';
 import { vibrer } from '../../../src/state/vibration';
 import { color, radius, space, type } from '../../../src/theme/tokens';
@@ -133,9 +134,11 @@ export default function GensDeProfil() {
                     >
                       <Visage uri={g.avatar} taille={48} />
                       <View style={styles.rangTexte}>
-                        <Text style={styles.nom} numberOfLines={1}>
-                          {g.nom || 'Sans nom'}
-                        </Text>
+                        <NomVerifie
+                          nom={g.nom || 'Sans nom'}
+                          verifie={g.verifie}
+                          style={styles.nom}
+                        />
                         <Text style={styles.sous} numberOfLines={1}>
                           {[
                             g.handle ? `@${g.handle}` : null,
@@ -178,9 +181,7 @@ export default function GensDeProfil() {
                           recyclingKey={String(a.id)}
                         />
                         <View style={styles.rangTexte}>
-                          <Text style={styles.nom} numberOfLines={1}>
-                            {a.name}
-                          </Text>
+                          <NomVerifie nom={a.name} verifie={a.verifie} style={styles.nom} />
                           {fans ? (
                             <Text style={styles.sous} numberOfLines={1}>
                               {fans} sur Deezer

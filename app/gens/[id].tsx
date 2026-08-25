@@ -17,6 +17,7 @@ import { prisme } from '../../src/api/client';
 import { EnteteTitre, Feuille, LigneAction } from '../../src/components/Feuille';
 import type { ProfilSocial, Track } from '../../src/api/types';
 import { IconeChevron, IconeRetour } from '../../src/components/Icones';
+import { NomVerifie } from '../../src/components/NomVerifie';
 import { Visage } from '../../src/components/Visage';
 import { chargerPlateforme, lienVers } from '../../src/state/plateforme';
 import { useAccount } from '../../src/state/useAccount';
@@ -359,9 +360,14 @@ export default function ProfilPublic() {
           <>
             <View style={styles.identite}>
               <Visage uri={profil.avatar} taille={AVATAR} style={styles.avatarMarge} />
-              <Text style={styles.nom} numberOfLines={2}>
-                {profil.nom || 'Sans nom'}
-              </Text>
+              <NomVerifie
+                nom={profil.nom || 'Sans nom'}
+                verifie={profil.verifie}
+                style={styles.nom}
+                ligne={styles.nomLigne}
+                taille={20}
+                numberOfLines={2}
+              />
               {profil.handle ? (
                 <Text style={styles.at} numberOfLines={1}>
                   @{profil.handle}
@@ -755,6 +761,9 @@ const styles = StyleSheet.create({
 
   identite: { alignItems: 'center', gap: space.xs, paddingHorizontal: space.lg, marginTop: space.sm },
   nom: { ...type.display, fontSize: 26, lineHeight: 32, color: color.text, textAlign: 'center' },
+  /** Le nom peut prendre les deux lignes qu'on lui accorde ; la rangee ne
+   *  doit alors pas deborder des marges de l'ecran. */
+  nomLigne: { justifyContent: 'center', maxWidth: '100%' },
   at: { ...type.label, fontSize: 13, lineHeight: 18, color: color.textFaint },
 
   comptes: {

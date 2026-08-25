@@ -15,12 +15,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { prisme } from '../src/api/client';
 import type { Artist, Track } from '../src/api/types';
 import { fansLisibles } from '../src/api/titre';
-import {
-  IconeCoche,
-  IconePastilleVerifiee,
-  IconePlus,
-  IconeRetour,
-} from '../src/components/Icones';
+import { IconeCoche, IconePlus, IconeRetour } from '../src/components/Icones';
+import { NomVerifie } from '../src/components/NomVerifie';
 import { vibrer } from '../src/state/vibration';
 import { color, radius, space, type } from '../src/theme/tokens';
 
@@ -282,7 +278,7 @@ export default function AjouterScreen() {
                   sous={a.titres?.length ? a.titres.join(' · ') : 'Aucun titre connu sous cette fiche'}
                   creuse={!a.titres?.length}
                   pied={fansLisibles(a.fans)}
-                  principal={!!a.principal}
+                  verifie={!!a.verifie}
                   pris={pris}
                   onPress={() => basculerArtiste(a)}
                 />
@@ -299,7 +295,7 @@ export default function AjouterScreen() {
                   sous={t.artist.name}
                   creuse={false}
                   pied={null}
-                  principal={false}
+                  verifie={false}
                   pris={pris}
                   onPress={() => basculerTitre(t)}
                 />
@@ -345,7 +341,7 @@ function Ligne({
   sous,
   creuse,
   pied,
-  principal,
+  verifie,
   pris,
   onPress,
 }: {
@@ -358,9 +354,10 @@ function Ligne({
   creuse: boolean;
   /** Troisieme ligne, plus faible : les abonnes. */
   pied: string | null;
-  /** La fiche principale pour ce nom — voir `Artist.principal`. Ne dit pas
-   *  « compte verifie » : Deezer n'en expose aucun. */
-  principal: boolean;
+  /** Le badge vérifié — voir `Artist.verifie`. Il dit « c'est bien lui », et
+   *  il est le même ici, dans la recherche et sur la fiche de l'artiste : sa
+   *  valeur ne dépend pas du mot tapé. */
+  verifie: boolean;
   pris: boolean;
   onPress: () => void;
 }) {
@@ -381,12 +378,7 @@ function Ligne({
         recyclingKey={image}
       />
       <View style={styles.ligneTextes}>
-        <View style={styles.ligneTitreRang}>
-          <Text style={styles.ligneTitre} numberOfLines={1}>
-            {titre}
-          </Text>
-          {principal ? <IconePastilleVerifiee couleur={color.accent} taille={14} /> : null}
-        </View>
+        <NomVerifie nom={titre} verifie={verifie} style={styles.ligneTitre} />
         {sous ? (
           <Text style={[styles.ligneSous, creuse && styles.ligneCreuse]} numberOfLines={1}>
             {sous}
@@ -490,7 +482,6 @@ const styles = StyleSheet.create({
   vignette: { width: 52, height: 52, borderRadius: radius.sm, backgroundColor: color.bgElevated },
   vignetteRonde: { borderRadius: radius.full },
   ligneTextes: { flex: 1, gap: 2 },
-  ligneTitreRang: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
   ligneTitre: { ...type.body, fontSize: 15, lineHeight: 20, color: color.text },
   ligneSous: { ...type.label, fontSize: 13, lineHeight: 18, color: color.textFaint },
   ligneCreuse: { color: color.alert },

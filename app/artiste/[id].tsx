@@ -17,6 +17,7 @@ import { fansLisibles, ligneInterpretes, separerTitre } from '../../src/api/titr
 import type { FicheArtiste, Track } from '../../src/api/types';
 import { player } from '../../src/audio/player';
 import { IconeRetour } from '../../src/components/Icones';
+import { NomVerifie } from '../../src/components/NomVerifie';
 import { vibrer } from '../../src/state/vibration';
 import { color, radius, space, type } from '../../src/theme/tokens';
 
@@ -158,9 +159,14 @@ export default function FicheArtisteEcran() {
             recyclingKey={String(fiche.artist.id)}
             accessibilityLabel={fiche.artist.name}
           />
-          <Text style={styles.nom} numberOfLines={2}>
-            {fiche.artist.name}
-          </Text>
+          <NomVerifie
+            nom={fiche.artist.name}
+            verifie={fiche.artist.verifie}
+            style={styles.nom}
+            ligne={styles.nomLigne}
+            taille={22}
+            numberOfLines={2}
+          />
           <Text style={styles.abonnes}>
             {fiche.abonnes === 0
               ? 'Personne ne le suit encore sur Reso'
@@ -255,8 +261,11 @@ const styles = StyleSheet.create({
     lineHeight: 34,
     color: color.text,
     textAlign: 'center',
-    marginTop: space.md,
   },
+  /** La marge vit sur la rangee et non sur le texte : posee sur le `Text`,
+   *  elle aurait pousse le nom sans pousser la pastille, qui se serait
+   *  retrouvee accrochee au portrait. */
+  nomLigne: { justifyContent: 'center', maxWidth: '100%', marginTop: space.md },
   // Le chiffre qui compte ici est celui de Reso : il dit qui, autour de toi,
   // écoute ça. Les fans Deezer disent une autre chose, et en plus petit.
   abonnes: { ...type.body, color: color.textMuted, textAlign: 'center' },

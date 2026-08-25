@@ -6,6 +6,7 @@ import type { Ami, Track } from '../api/types';
 import { vibrer } from '../state/vibration';
 import { color, space, type } from '../theme/tokens';
 import { EnteteTitre, Feuille } from './Feuille';
+import { NomVerifie } from './NomVerifie';
 import { Visage } from './Visage';
 
 /**
@@ -141,9 +142,12 @@ export function FeuilleEnvoi({
                 accessibilityLabel={parti ? `Envoyé à ${g.nom}` : `Envoyer à ${g.nom}`}
               >
                 <Visage uri={g.avatar} taille={40} />
-                <Text style={[styles.nom, parti && styles.nomParti]} numberOfLines={1}>
-                  {g.nom || `@${g.handle}`}
-                </Text>
+                <NomVerifie
+                  nom={g.nom || `@${g.handle}`}
+                  verifie={g.verifie}
+                  style={[styles.nom, parti && styles.nomParti]}
+                  ligne={styles.nomLigne}
+                />
                 {parti ? <Text style={styles.parti}>envoyé</Text> : null}
               </Pressable>
             );
@@ -186,7 +190,11 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: color.hairline,
   },
-  nom: { ...type.lead, fontSize: 15, lineHeight: 20, color: color.text, flex: 1 },
+  /** Le `flex` vit sur la rangee et non sur le texte : c'est elle qui doit
+   *  pousser « envoyé » au bout de la ligne, et un `flex: 1` sur le nom
+   *  aurait au contraire decolle la pastille du nom qu'elle qualifie. */
+  nomLigne: { flex: 1 },
+  nom: { ...type.lead, fontSize: 15, lineHeight: 20, color: color.text },
   nomParti: { color: color.textFaint },
   parti: { ...type.caption, fontSize: 11, lineHeight: 14, color: color.accent, letterSpacing: 0.8 },
 });

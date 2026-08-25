@@ -35,6 +35,21 @@ export const color = {
    *  et dramatise une panne réseau qui n'en vaut pas la peine. */
   alert: '#E8927C',
 
+  /**
+   * Le badge verifie.
+   *
+   * Un vert franc, et **pas `accent`** : l'accent est le teal du « j'aime »,
+   * il porte deja un sens dans le fil et le voir a cote d'un nom d'artiste
+   * ferait lire « tu aimes » la ou on veut dire « c'est bien lui ». Deux
+   * marques de la meme couleur finissent par ne plus rien dire ni l'une ni
+   * l'autre.
+   *
+   * Plus jaune et plus sature que l'accent : c'est ce qui le fait tenir a
+   * douze pixels a cote d'un nom clair, ou une couleur trop proche du fond
+   * se refermerait en tache grise.
+   */
+  verifie: '#2BC55E',
+
   hairline: 'rgba(255, 255, 255, 0.08)',
   scrim: 'rgba(0, 0, 0, 0.55)',
 } as const;

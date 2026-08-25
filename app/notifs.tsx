@@ -11,6 +11,7 @@ import {
   IconeEnvoyer,
   IconeGarder,
   IconeGens,
+  IconePastilleVerifiee,
   IconeRetour,
 } from '../src/components/Icones';
 import { Visage } from '../src/components/Visage';
@@ -263,7 +264,11 @@ function Ligne({
       style={({ pressed }) => [styles.rang, pressed && styles.rangPresse]}
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${nom}${dit.verbe}${dit.oeuvre ?? ''}`}
+      // La pastille est un dessin : sans ce mot, le lecteur d'ecran lit la
+      // phrase sans jamais dire que le compte est verifie.
+      accessibilityLabel={`${nom}${notif.gen.verifie ? ', vérifié,' : ''}${dit.verbe}${
+        dit.oeuvre ?? ''
+      }`}
     >
       <View>
         <Visage uri={notif.gen.avatar} taille={48} />
@@ -275,6 +280,21 @@ function Ligne({
       <View style={styles.rangTexte}>
         <Text style={styles.phrase} numberOfLines={2}>
           <Text style={styles.nom}>{nom}</Text>
+          {/* La pastille est une **vue en ligne** dans le texte, et pas une
+              rangee posee a cote : le nom ouvre une phrase qui coule sur deux
+              lignes, et le sortir d'un `Text` pour l'accoler a un SVG aurait
+              casse ce retour a la ligne — la phrase se serait mise a se
+              couper apres le nom, quelle que soit sa longueur.
+
+              React Native accepte une `View` dans un `Text` depuis 0.50, sur
+              les deux plateformes. Elle s'aligne sur la ligne de base, d'ou
+              le `marginBottom` negatif : sans lui la pastille flotte au-dessus
+              du mot qu'elle qualifie. */}
+          {notif.gen.verifie ? (
+            <View style={styles.pastilleEnLigne}>
+              <IconePastilleVerifiee taille={PASTILLE} />
+            </View>
+          ) : null}
           {dit.verbe}
           {dit.oeuvre ? <Text style={styles.oeuvre}>{dit.oeuvre}</Text> : null}
         </Text>
@@ -295,6 +315,10 @@ function Ligne({
     </Pressable>
   );
 }
+
+/** La pastille dans la phrase. Un cran sous les quinze pixels du texte : elle
+ *  qualifie le nom, elle ne doit pas peser autant que lui. */
+const PASTILLE = 13;
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: color.bg, paddingHorizontal: space.lg },
@@ -352,6 +376,17 @@ const styles = StyleSheet.create({
   rangTexte: { flex: 1, gap: 2 },
   phrase: { ...type.body, fontSize: 15, lineHeight: 21, color: color.textMuted },
   nom: { color: color.text, fontWeight: '700' },
+  /** La taille et la marge sont figees et non deduites de la police : une vue
+   *  en ligne n'herite de rien du `Text` qui l'entoure, et un SVG sans taille
+   *  explicite y occupe zero pixel. */
+  pastilleEnLigne: {
+    width: PASTILLE,
+    height: PASTILLE,
+    marginLeft: 4,
+    // Le verbe porte deja son espace de tete (« ␣te suit »), donc rien a
+    // droite : en ajouter un ferait un trou entre la pastille et la phrase.
+    marginBottom: -2,
+  },
   oeuvre: { color: color.text },
   quand: { ...type.label, fontSize: 13, lineHeight: 18, color: color.textFaint },
 

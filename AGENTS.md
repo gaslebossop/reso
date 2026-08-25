@@ -1112,6 +1112,125 @@ c'est une `PrismeError` qui porte le message du serveur.
 **Réserve, non traitée :** on ne peut pas bloquer les envois de quelqu'un sans
 se désabonner de lui. Le plafond rend le harcèlement coûteux, pas impossible.
 
+## Le badge vérifié dit « c'est bien lui », et rien d'autre
+
+Ajouté le 2026-08-25. Vert (`color.verifie`, `#2BC55E`), rosace crantée façon
+Twitter, à côté du nom.
+
+**Ce n'est pas un badge de notoriété.** Il répond à une seule question — « cette
+fiche-là est-elle bien celle de cet artiste-là, ce compte-là bien cette
+personne-là ». Le nombre d'abonnés sert d'indice pour y répondre, pas de mérite
+à récompenser.
+
+### Deux sources, et il en faut deux
+
+`Verifies.scala`, côté moteur :
+
+```
+verifie(artiste) = curé(id)     || fans ≥ 100 000
+verifie(compte)  = curé(handle)
+```
+
+- **La liste curée** vit dans la table `verifies` et se sème au démarrage
+  depuis `Verifies.semisComptes` / `semisArtistes`. C'est la seule chose qui
+  puisse badger `gasleboss` (**deux** abonnés Deezer, id `219912405`) ou
+  `@gaspirou` : aucune règle automatique ne les atteindra jamais, et c'est
+  exactement pour ces cas-là qu'un badge existe.
+- **Le seuil** couvre les artistes installés que personne n'a pensé à curer.
+  Sans lui, le badge se serait lu comme « ami de la maison ».
+
+`ON CONFLICT DO NOTHING` sur le semis, **jamais `DO UPDATE`** : déverifier
+quelqu'un est un `DELETE` en SQL, et il doit tenir au redémarrage suivant.
+Sinon la seule façon de retirer un badge aurait été de modifier le code.
+
+```sql
+-- ajouter          / retirer
+INSERT INTO verifies (genre, ref) VALUES ('compte', 'unhandle');
+INSERT INTO verifies (genre, ref) VALUES ('artiste', '219912405');
+DELETE FROM verifies WHERE genre = 'artiste' AND ref = '219912405';
+```
+
+Le moteur relit la table **au démarrage seulement** : une modification en SQL
+demande un `systemctl restart prisme`. C'est voulu — la liste est lue à chaque
+sérialisation d'artiste, donc à chaque carte du fil, et une lecture de base à
+cet endroit-là serait le pire endroit possible pour en mettre une.
+
+### Pourquoi il remplace `principal`
+
+`principal` répondait à la bonne question — « parmi les fiches portant le nom
+que tu as tapé, laquelle est la vraie » — mais **il n'était calculable que dans
+une recherche** : il lui fallait le mot tapé et le groupe d'homonymes. Sur la
+fiche d'un artiste, ouverte depuis une carte du fil, il n'y a ni l'un ni
+l'autre. Le même artiste portait donc la pastille dans la liste de résultats et
+la perdait une fois sa fiche ouverte. **Un badge qui clignote d'un écran à
+l'autre ne se lit plus comme un fait, il se lit comme un bug.**
+
+Le seuil, lui, est une propriété de la fiche seule. Il tient la même promesse
+anti-homonyme sur les cas qui l'avaient motivée — le vrai Daft Punk passe,
+« Daft Punk Experience » (63 abonnés) non ; le vrai Nirvana passe, « Nirvana
+(UK) » non — et il la tient **partout**.
+
+`principal` reste calculé et envoyé : un APK déjà installé le lit encore, et le
+retirer aurait éteint la pastille sur les téléphones non mis à jour. L'app à
+jour ne le dessine plus.
+
+### Le drapeau tombe dans les encodeurs, pas dans les routes
+
+`verifie` est ajouté dans `given Encoder[Artist]` et dans un **nouveau**
+`given Encoder[Gen]` (`Models.scala`). Un artiste est rendu par une dizaine de
+chemins — la fiche, la recherche, les abonnements, les cartes du fil, le profil
+de quelqu'un — et le poser route par route aurait garanti d'en oublier un.
+
+Le profil, lui, était **recopié à la main à cinq endroits** : la recherche, les
+listes d'abonnés et d'abonnements, la feuille d'envoi, les notifications, la
+signature d'une carte partagée. Ils passent tous par l'encodeur maintenant.
+`/social/profil/{ref}` reste à part (ce n'est pas un `Gen`) et calcule le même
+drapeau sur la même clé — le handle.
+
+**Corollaire :** `Verifies` porte un état de module posé une fois au démarrage
+(`Verifies.poser`, dans `Main`), parce qu'un encodeur est une fonction pure et
+ne peut rien aller chercher. C'est de la configuration en lecture seule, du
+même genre que `Tuning`.
+
+### Côté app
+
+`NomVerifie` (`src/components/NomVerifie.tsx`) est le seul endroit qui dessine
+la pastille. Une rangée et pas un `<Text>` imbriqué : React Native n'accepte
+pas de SVG dans un `Text`. `flexShrink` sur le texte — c'est le nom qui se
+tronque quand la place manque, jamais la pastille.
+
+**Le vert n'est pas `accent`.** L'accent teal est le « j'aime » du fil ; le voir
+à côté d'un nom d'artiste ferait lire « tu aimes » là où on veut dire « c'est
+bien lui ». Deux marques de la même couleur finissent par ne plus rien dire ni
+l'une ni l'autre.
+
+**Dans les notifications, c'est une vue en ligne.** Le nom y ouvre une phrase
+qui coule sur deux lignes (« *Gaspirou* a gardé le son que tu lui as
+envoyé »). Le premier jet avait sauté cet écran en se disant qu'un SVG ne
+rentre pas dans un `<Text>` — c'est faux : **React Native accepte une `View`
+dans un `Text` depuis 0.50**, sur les deux plateformes, et sous Fabric (le
+projet est en nouvelle architecture) elle est correctement mesurée.
+
+Deux choses à ne pas défaire dans `notifs.tsx` :
+
+- **la pastille reste dans le `Text`.** La sortir pour l'accoler au nom dans
+  une rangée casserait le retour à la ligne : la phrase se couperait après le
+  nom quelle que soit sa longueur ;
+- **`width`/`height` explicites et `marginBottom: -2`.** Une vue en ligne
+  n'hérite de rien du texte qui l'entoure — un SVG sans taille y occupe zéro
+  pixel — et elle s'aligne sur la ligne de base, donc sans la marge négative
+  la pastille flotte au-dessus du mot qu'elle qualifie.
+
+**Un seul endroit ne le montre pas, volontairement :** la rangée « Tu suis »
+de l'onglet Les gens. Des colonnes de 56 px avec un prénom tronqué dessous ;
+la pastille y pousserait le nom hors de sa colonne, et le badge appartient là
+où un nom entier est lisible.
+
+**Pas encore vu sur appareil** : la rosace à 14 px à côté d'un nom, le vert sur
+le fond de la fiche artiste, et surtout **la vue en ligne des notifications** —
+c'est la seule qui repose sur un comportement de mise en page que la relecture
+ne tranche pas.
+
 ## Le banc lisait `__DEV__`, que Node ne définit pas
 
 `player.ts` tait ses traces en production avec `if (!__DEV__) return`. Metro

@@ -12,7 +12,7 @@ import { redirectUri } from '../src/auth/spotify';
 import type { Artist } from '../src/api/types';
 import { fansLisibles } from '../src/api/titre';
 import { Etapes } from '../src/components/Etapes';
-import { IconePastilleVerifiee } from '../src/components/Icones';
+import { NomVerifie } from '../src/components/NomVerifie';
 import { artistes as chargerArtistes } from '../src/state/catalogue';
 import { markOnboarded } from '../src/state/session';
 import { vibrer } from '../src/state/vibration';
@@ -278,7 +278,7 @@ function LigneArtiste({
       accessibilityState={{ checked: selected }}
       accessibilityLabel={[
         artist.name,
-        artist.principal ? 'fiche principale' : null,
+        artist.verifie ? 'vérifié' : null,
         titres ? `connu pour ${titres}` : null,
       ]
         .filter(Boolean)
@@ -296,14 +296,11 @@ function LigneArtiste({
         {/* Le badge colle au nom, pas au bord de la ligne : c'est le nom
             qu'il qualifie, et pose a l'autre bout il se lirait comme un
             etat de selection. */}
-        <View style={styles.ligneNomRang}>
-          <Text style={[styles.ligneNom, selected && styles.ligneNomOn]} numberOfLines={1}>
-            {artist.name}
-          </Text>
-          {artist.principal ? (
-            <IconePastilleVerifiee couleur={color.accent} taille={14} />
-          ) : null}
-        </View>
+        <NomVerifie
+          nom={artist.name}
+          verifie={artist.verifie}
+          style={[styles.ligneNom, selected && styles.ligneNomOn]}
+        />
         {titres ? (
           <Text style={styles.ligneTitres} numberOfLines={1}>
             {titres}
@@ -406,7 +403,6 @@ const styles = StyleSheet.create({
   lignePressee: { backgroundColor: color.bgElevated },
   ligneAvatar: { width: 48, height: 48, borderRadius: radius.full, backgroundColor: color.bgSunken },
   ligneTextes: { flex: 1, gap: 2 },
-  ligneNomRang: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
   ligneNom: { ...type.body, fontSize: 15, lineHeight: 20, color: color.textMuted },
   ligneNomOn: { color: color.text },
   ligneTitres: { ...type.label, fontSize: 13, lineHeight: 17, color: color.textFaint },
