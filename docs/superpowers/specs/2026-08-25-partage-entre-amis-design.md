@@ -234,12 +234,23 @@ Un appui ouvre une `Feuille` : les visages des amis, et le compteur du jour.
 - Optimiste : le visage se coche tout de suite, l'appel part ensuite. Un refus
   décoche et affiche pourquoi.
 
-### Le bandeau, côté réception
+### La signature, côté réception
 
-Au-dessus de la pochette : l'avatar de l'expéditeur et « Léa te l'envoie ».
-Il vit **au-dessus** du carré de la pochette, jamais dedans — la pochette reste
-entière, ce qui est le point sur lequel les cartes ont déjà été refaites une
-fois.
+**Corrigé le 2026-08-25, avant l'écriture du plan.** Le design disait « un
+bandeau au-dessus de la pochette ». C'est impossible sans casser une règle plus
+ancienne : la carte mesure `cote + cartel`, et un bandeau la rendrait plus haute
+que les autres. La pile changerait alors de forme à chaque fois qu'une carte
+partagée passe — précisément ce que la hauteur constante du cartel existe pour
+empêcher. Le poser en surimpression sur la pochette est refusé pour la raison
+inverse : la pochette doit rester entière.
+
+La signature prend donc **la ligne de mention du cartel** — le slot qui existe
+déjà, et dont le rôle est exactement « pourquoi cette carte est là ». L'avatar
+de l'expéditeur y est rendu en ligne à 18 px, suivi de « Léa te l'envoie », à la
+place de la phrase du moteur.
+
+**Zéro changement de géométrie** : `cadreCarte` n'est pas touchée, le vol vers la
+trace part du même carré, et la pile ne bouge pas.
 
 ## 8. Ce que ça touche
 
