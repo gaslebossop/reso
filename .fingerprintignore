@@ -1,0 +1,5 @@
+# Le cache local de RNRepo n'est pas de la matiere de build : il ne doit pas
+# entrer dans l'empreinte du projet, sinon chaque telechargement d'artefact
+# pre-compile changerait l'empreinte et invaliderait tout ce qu'elle protege —
+# a commencer par la reutilisation des builds EAS.
+**/.rnrepo-cache

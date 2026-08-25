@@ -40,6 +40,12 @@ yarn-error.*
 /ios
 /android
 
+# Le cache des artefacts pre-compiles de RNRepo. Il se retelecharge seul.
+.rnrepo-cache/
+
+# L’APK sorti par `npm run apk`.
+/build
+
 # Signature Android : la cle et son mot de passe restent locaux.
 credentials.json
 credentials/

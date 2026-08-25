@@ -493,6 +493,115 @@ au fait que l'univers rap de référence ne compte que cinquante artistes, quand
 simulation sert cent vingt cartes : l'anti-répétition seule peut expliquer une
 part de rap qui décroît.
 
+## Le vivier s'epuisait, et le fil devenait mediocre en vieillissant
+
+Signale le 2026-08-25 : « l'algo est moins bon qu'au debut ». Ce n'etait pas une
+impression, et la cause n'etait ni le modele ni le reseau.
+
+### Ce que le journal montrait
+
+Taille du vivier de candidats, compte de 2440 faits, par tranches de 40 lots :
+
+| lots | vivier moyen |
+|---|---|
+| 1-40 | **608** |
+| 81-120 | 429 |
+| 161-200 | 223 |
+| 241-280 | 158 |
+| 321-332 | **43** |
+
+Decroissance **monotone**. Un compte de 79 faits reste plat a ~500 sur la meme
+periode, et le journal ne porte **aucune erreur `[deezer]`** : ce n'est ni le
+quota ni le reseau, c'est l'anciennete du profil.
+
+A 43 candidats pour douze cartes, **le moteur ne choisit plus** — il sert ce qui
+reste. Tout le classement (collaboratif, proximite de facette, decouverte)
+s'applique a un fond de tiroir. C'est la forme que prend « moins bon qu'avant ».
+
+### La cause, en arithmetique
+
+`artistTop` appelait `/artist/{id}/top?limit=12` **sans `index`**, mis en cache
+trois jours. Mesure sur l'API le 2026-08-25 : ce point d'entree annonce
+**`total: 100`** et honore `index` — `index=12` rend douze AUTRES titres. On
+lisait donc **douze pour cent** du catalogue accessible.
+
+Chaque ancre exposait ainsi 20 voisins x 12 titres = **240 titres,
+definitivement**. Chaque lot tire six voisins sur vingt : une vingtaine de
+tirages d'une ancre couvre tous ses voisins, et les ancres lourdes ont ete
+tirees des centaines de fois sur 332 lots. Leur univers etait consomme, et
+`pickWeighted` — proportionnel au poids, sans memoire du deja-vu — y retournait
+quand meme.
+
+**Preuve independante**, prise sur les quinze artistes les plus consommes de ce
+compte, en confrontant chaque page a ses 3976 `seen_tracks` :
+
+| page | index | titres | frais | part fraiche |
+|---|---|---|---|---|
+| 0 | 0 | 180 | 18 | **10,0 %** |
+| 1 | 12 | 175 | 73 | 41,7 % |
+| 2 | 24 | 157 | 101 | 64,3 % |
+| 3 | 36 | 141 | 104 | 73,8 % |
+| 4 | 48 | 115 | 99 | **86,1 %** |
+
+La page 0 est vue a 90 % — soit exactement le taux de rejet lu dans les
+journaux, retrouve par un chemin sans rapport. Les pages 1-4 rendent
+**x21,9 de matiere fraiche**.
+
+### Les quatre correctifs
+
+1. **Pagination des catalogues.** `artistTop(id, limit, index)`, avec l'index
+   **dans la cle de cache** — sans lui, la deuxieme page rendrait la premiere,
+   deja en cache, et la pagination n'existerait que dans l'URL. Une page tiree
+   par voisin et par lot (`Feed.pageDeVoisin`), penchee vers les titres phares
+   par un poids `1/(1+p)` : ouvrir la profondeur n'est pas y demenager, les
+   pages profondes sont pleines de versions live et de remixes. Univers d'une
+   ancre : 240 -> **1200 titres**.
+2. **La radio se renouvelle, on la gelait.** Deux appels consecutifs a
+   `/artist/{id}/radio` rendent des selections differentes — c'est la seule
+   variete gratuite du moteur. Elle etait gardee six heures, sous une cle qui
+   **ne portait meme pas le `limit`** (donc un appel a une autre profondeur
+   rendait la reponse de la premiere). Cle corrigee, `Tuning.RadioTtlSec` a
+   trente minutes.
+3. **Le tirage des ancres est aplati** (`Tuning.AncrePlatitude = 0.5`, une
+   racine carree). Proportionnel au poids, il repechait les memes artistes
+   lourds pendant que la traine de six cents artistes n'etait jamais visitee.
+   La racine **conserve l'ordre** : un artiste vingt fois plus aime reste plus
+   probable. Elargir n'est pas niveler — a exposant nul, le fil cesserait de
+   ressembler a quelqu'un.
+4. **`MinFresh` : 24 -> 72.** Vingt-quatre pour un lot de douze, c'etait se
+   declarer en bonne sante avec deux candidats par carte. Mesure :
+   l'elargissement s'est declenche **2 fois sur 332 lots** pendant
+   l'effondrement. Le filet etait sous le plancher du probleme.
+
+### Ce que `/artist/related` ne pourra jamais donner
+
+Mesure : il rend **vingt** voisins quel que soit le `limit` demande.
+`Tuning.RelatedLimit = 30` en demande trente et en recoit vingt. Ce plafond est
+celui de Deezer — c'est pour cela que la profondeur devait venir des pages de
+catalogue, et de nulle part ailleurs.
+
+### Trois pistes suivies qui etaient fausses
+
+Elles sont ecrites pour qu'on ne les reprenne pas :
+
+- **« le plafond de douze titres sature chaque artiste »** — non. Mesure en
+  base : **3,13 titres servis par artiste** en moyenne, et 20 artistes sur 627
+  seulement approchent douze. Le plafond mord par l'**union sur 332 lots**, pas
+  artiste par artiste.
+- **« les voisinages ne couvrent que les 45 amorces »** — non. `allAnchors`
+  couvre les 645 artistes du profil.
+- **« quota Deezer »** — non, zero 403 dans le journal.
+
+### Un piege de mesure, paye deux fois
+
+`[lot]` porte **deux champs nommes `vivier`** : la taille du vivier, et le temps
+passe a le construire (dans la parenthese). Un `grep -o "vivier=[0-9]*"` melange
+les deux et fait croire a une oscillation qui n'existe pas.
+
+Et **`POST /feed/next` n'accepte plus `user_id` dans le corps** : forcer un lot
+avec cette cle cree un compte `anon:` et sert un demarrage a froid, ce qui ne
+mesure rien du compte vise. L'identite passe par le `Bearer` ou `device_id`.
+
 ## Lire les lenteurs sans deviner
 
 `Main.chronometre` écrit dans `prisme.log` **toute requête ≥ 1 s**, avec sa
@@ -689,6 +798,93 @@ poste change, la connexion échoue en développement et il faut rejouer :
 ```bash
 ssh … "cd /home/debian/g-auth/packages/core && DATABASE_URL=\$(cat /home/debian/g-auth-secrets/dburl)   G_AUTH_SECRET=\$(cat /home/debian/g-auth-secrets/master)   RESO_EXTRA_REDIRECT_URIS='exp://<nouvelle-ip>:8081/--/callback'   npx tsx src/scripts/registerResoClient.ts"
 ```
+
+## Construire un APK **ici**, en deux minutes — `npm run apk`
+
+Mis en place le 2026-08-25, parce qu'un build EAS coûte une quinzaine de
+minutes **dont une bonne moitié en file d'attente**, avant qu'une seule ligne
+soit compilée. Mesuré ce jour-là : le build lancé était encore `IN_QUEUE` au
+bout de dix minutes. Or l'immense majorité des changements de ce dépôt ne
+touche **aucun code natif** — un badge, un écran, une couleur.
+
+`tools/apk.mjs` sort un APK signé dans `build/reso.apk`. En Node et pas en
+shell : il doit tourner pareil depuis PowerShell et depuis bash.
+
+### Les trois choses qui font la vitesse, et qu'il ne faut pas défaire
+
+1. **`android/` n'est jamais régénéré de zéro.** `expo prebuild` **sans**
+   `--clean` met à jour ce qui a changé et laisse le reste, donc les sorties
+   de compilation natives restent valides. `--clean` ramène à un build à froid
+   à chaque fois — c'est toute la différence entre deux minutes et quinze.
+2. **Les caches Gradle vivent dans `~/.gradle/gradle.properties`**, pas dans le
+   projet : `android/gradle.properties` est réécrit par prebuild, donc tout ce
+   qu'on y met disparaît. Cache de build, cache de configuration, démon,
+   `-Xmx8g`, Kotlin hors processus.
+3. **RNRepo** (`@rnrepo/expo-config-plugin`) substitue aux bibliothèques React
+   Native des artefacts déjà compilés, au lieu de les bâtir depuis les sources.
+   C'est ce qui coupe le coût du **premier** build, celui que les deux caches
+   ci-dessus ne peuvent pas éviter. Exige RN ≥ 0.80 et la nouvelle
+   architecture : Reso est en 0.81 + `newArchEnabled`. **En bêta.** Pour le
+   désactiver sans rien désinstaller : `DISABLE_RNREPO=1`.
+4. **`:app:assembleRelease`, jamais `assembleRelease` tout court.** Sans le
+   prefixe de module, Gradle declenche la tache de chaque sous-projet
+   **independamment** au lieu de passer par le graphe de dependances de
+   l'app. Symptome mesure, et il coute cher :
+   `:react-native-reanimated:buildCMakeRelWithDebInfo` echoue en cherchant
+   `libworklets.so` dans un dossier de variante que personne ne lui a demande
+   de produire — **dix-huit minutes pour rien**. La doc de RNRepo le dit
+   explicitement, et le premier jet de `tools/apk.mjs` l'ignorait.
+
+Mesure sur ce poste le 2026-08-25 : **a froid 18 min**, **incremental
+1 min 12** (182 taches, dont 138 deja a jour). L'APK sort a `build/reso.apk`,
+87 Mo.
+
+### La signature n'est pas un détail
+
+Le projet Android généré par Expo signe sa variante `release` avec le
+**keystore de débogage**. Un APK ainsi signé s'installe, mais Android refusera
+ensuite toute mise à jour par-dessus un APK signé par EAS avec
+`credentials/reso.jks` — et inversement. Deux clés différentes, c'est une
+désinstallation forcée à chaque va-et-vient entre local et EAS.
+
+Le script resigne donc systématiquement avec `reso.jks` **après coup**
+(`apksigner`), plutôt que de modifier `app/build.gradle` — que le prochain
+prebuild réécrirait. C'est la seule façon que ça survive à un prebuild.
+
+### Deux garde-fous, et pourquoi ils sont là
+
+- **Le disque.** Deux seuils, parce que la depense n'est pas la meme : **12 Go**
+  a froid, **5 Go** en incremental. Ce sont des mesures, pas des estimations —
+  un premier passage complet a consomme 7,4 Go sur ce poste (dont 0,8 pour
+  `android/` et 2,5 pour `~/.gradle`), et un build incremental ne redepense
+  pas ce qui est deja pose. Le premier jet avait un seuil unique a 15 Go : il
+  bloquait des builds incrementaux qui tenaient tres largement dans ce qui
+  restait. En dessous du seuil, un build Android echoue *en pleine
+  compilation*, avec une erreur qui ne mentionne jamais le disque — refuser
+  tout de suite coute moins cher qu'un diagnostic.
+- **`ANDROID_HOME` n'est pas posé sur ce poste.** Le script trouve le SDK à son
+  emplacement par défaut et l'exporte lui-même. C'est la première chose qui
+  fait échouer un build local, et elle n'a rien à voir avec le projet.
+
+### Le piège OneDrive
+
+Le dépôt vit dans `OneDrive\Bureau\`. Un build Android crée des dizaines de
+milliers de fichiers intermédiaires ; OneDrive va tous vouloir les
+synchroniser et peut en **verrouiller un en plein build**. C'est une cause
+classique d'échec non reproductible. Exclure `android/`, `node_modules/` et
+`build/` de la synchronisation, ou builder depuis un clone hors OneDrive.
+
+### Ce que ça change pour EAS
+
+`@rnrepo/expo-config-plugin` est dans les `plugins` d'`app.json`, donc il
+s'applique **aussi** aux builds EAS. C'est voulu (ils y gagnent autant), mais
+c'est un composant en bêta de plus dans une chaîne qui marchait : si un build
+EAS se met à échouer sans raison apparente, c'est le premier suspect, et
+`DISABLE_RNREPO=1` le tranche en une exécution.
+
+`.fingerprintignore` porte `**/.rnrepo-cache` : sans lui, chaque
+téléchargement d'artefact pré-compilé changerait l'empreinte du projet et
+invaliderait la réutilisation des builds EAS.
 
 ## Construire un APK
 

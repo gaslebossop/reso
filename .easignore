@@ -11,6 +11,8 @@ web-build/
 .git/
 /ios
 /android
+.rnrepo-cache/
+/build
 bench/
 docs/
 *.log
