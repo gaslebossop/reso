@@ -29,6 +29,7 @@ import {
   autoActif, chargerSync, reglerSync, souscrireAuto,
 } from '../../src/state/spotifySync';
 import { refreshAccount, useAccount } from '../../src/state/useAccount';
+import { retirerDeLaSeance } from '../../src/state/gardesSeance';
 import { vibrer } from '../../src/state/vibration';
 import { chiffres, color, motion, radius, space, type } from '../../src/theme/tokens';
 
@@ -144,6 +145,11 @@ export default function LibraryScreen() {
     // reapparait au prochain rafraichissement, ce qui est le bon compromis
     // devant une grille ou l'absence se voit immediatement.
     setTracks((xs) => xs.filter((x) => x.id !== t.id));
+    // La trace du fil montre les pochettes gardees pendant la seance : un
+    // titre qu'on vient de retirer n'a plus rien a y faire. Sans cette ligne,
+    // il y restait jusqu'a la fermeture de l'application — une pile qui
+    // pretendait montrer les gardes et en montrait un de trop.
+    retirerDeLaSeance(t.id);
     await prisme.removeFromLibrary(t.id).catch(() => {});
   }, []);
 

@@ -17,10 +17,13 @@ import Animated, {
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
+  withDelay,
+  withRepeat,
   withSpring,
   withTiming,
   type SharedValue,
 } from 'react-native-reanimated';
+import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 
@@ -80,6 +83,48 @@ import { vibrer } from '../../../src/state/vibration';
  * garder et aimer ne sont pas le meme geste — l'un range le titre, l'autre le
  * laisse passer. Un ecran qui existe pour raconter une rencontre doit dire
  * laquelle. Voir [[phraseDuMatch]].
+ *
+ * ## Le match fort a une lumiere
+ *
+ * Quand les deux ont **garde** le titre — le geste rare, celui qui range — la
+ * pochette s'allume. Trois choses ensemble, et il en faut trois : une aura de
+ * lueurs qui derivent derriere elle, la pochette qui **emet** cette lumiere
+ * par son ombre, et la mention doree qui brille du meme or.
+ *
+ * **L'or n'est pas decoratif.** `color.save` est deja la couleur de « je
+ * garde » partout ailleurs. L'aura ne dit pas « regarde comme c'est beau »,
+ * elle dit « vous avez fait ce geste-la tous les deux » — rien a apprendre.
+ *
+ * **Elle est DERRIERE, jamais par-dessus.** Un halo pose sur la pochette
+ * salirait l'artwork, qui est la seule chose que cet ecran donne a voir.
+ *
+ * ### La recette, et pourquoi celle-la
+ *
+ * Une seule tache doree ne fait pas une aura : elle fait un rond flou. Ce qui
+ * en fait une, c'est **la superposition de plusieurs lueurs de teintes
+ * voisines qui ne bougent pas ensemble** — la meme recette que les fonds
+ * « aurora », et la raison pour laquelle une aura semble vivante alors qu'un
+ * halo semble colle. D'ou :
+ *
+ *  - **trois lueurs** ([[Lueur]]), or / ambre / miel pale. Une seule famille
+ *    de teinte : trois couleurs franches feraient une guirlande ;
+ *  - **des derives independantes** (7,4 s, 9,1 s, 11,7 s) : des periodes
+ *    premieres entre elles ne se resynchronisent jamais, donc la figure ne se
+ *    repete pas a l'oeil ;
+ *  - **une rotation d'ensemble tres lente** (48 s le tour), en `linear` — la
+ *    seule place ou `linear` est juste, une rotation continue qui ralentit a
+ *    chaque tour se voit comme un rate ;
+ *  - **`boxShadow` sur la pochette** (RN 0.76+, Nouvelle Architecture) : deux
+ *    ombres dorees superposees, une serree et une large. C'est ce qui fait que
+ *    la lumiere a l'air de sortir de l'artwork au lieu d'etre posee derriere.
+ *
+ * Le degrade radial vient de `react-native-svg` — pas de Skia dans ce projet,
+ * et un degrade a trois arrets ne demande aucun flou pour avoir un bord doux.
+ *
+ * Tout arrive **avec** la scene, jamais apres : une lumiere qui s'allume une
+ * seconde plus tard se lit comme un chargement. Et « Reduire les animations »
+ * fige l'aura a mi-course au lieu de l'eteindre — c'est une information, pas
+ * une decoration.
  *
  * ## L'extrait
  *
@@ -306,6 +351,140 @@ function Fermer({ onPress, haut }: { onPress: () => void; haut: number }) {
   );
 }
 
+/** Les trois teintes de l'aura, et leur place de depart autour de la pochette.
+ *
+ * Une seule famille — or, ambre, miel pale. Trois couleurs franches feraient
+ * une guirlande ; trois voisines font une lumiere.
+ *
+ * `part` est la taille de la lueur en fraction du cote de la pochette, `dx` et
+ * `dy` l'amplitude de sa derive, `periode` sa duree en millisecondes. Les
+ * periodes sont volontairement sans diviseur commun : elles ne se
+ * resynchronisent jamais, donc la figure ne se repete pas a l'oeil.
+ */
+const LUEURS = [
+  { teinte: '#F5B841', part: 1.75, dx: 26, dy: 18, periode: 7400, retard: 0 },
+  { teinte: '#FF8A3D', part: 1.5, dx: 34, dy: 26, periode: 9100, retard: 900 },
+  { teinte: '#FFE3A3', part: 1.15, dx: 22, dy: 30, periode: 11700, retard: 1800 },
+] as const;
+
+/**
+ * L'aura : trois lueurs qui derivent, et qui tournent lentement ensemble.
+ *
+ * Le groupe entier respire aussi (opacite et echelle), mais sur une periode
+ * differente de celles des lueurs — sinon les quatre mouvements se
+ * rejoindraient regulierement et la respiration deviendrait un battement.
+ */
+function Aura({ cote, entree }: { cote: number; entree: SharedValue<number> }) {
+  const reduced = useReducedMotion();
+  const souffle = useSharedValue(0);
+  const tour = useSharedValue(0);
+
+  useEffect(() => {
+    // Mi-course et immobile : l'aura reste lisible, elle cesse seulement de
+    // bouger. L'eteindre effacerait ce qu'elle dit.
+    if (reduced) {
+      souffle.set(0.5);
+      return;
+    }
+    souffle.set(
+      withRepeat(withTiming(1, { duration: 5300, easing: Easing.inOut(Easing.quad) }), -1, true),
+    );
+    // `linear` est juste ici, et seulement ici : une rotation continue qui
+    // ralentit a chaque tour se voit comme un rate.
+    tour.set(withRepeat(withTiming(1, { duration: 48000, easing: Easing.linear }), -1, false));
+  }, [reduced, souffle, tour]);
+
+  // Multipliee par l'entree : l'aura arrive AVEC la pochette au lieu de
+  // s'allumer une fois qu'elle est posee — un second mouvement se verrait.
+  const groupe = useAnimatedStyle(() => ({
+    opacity: interpolate(souffle.get(), [0, 1], [0.68, 1]) * entree.get(),
+    transform: [
+      { rotate: `${tour.get() * 360}deg` },
+      { scale: interpolate(souffle.get(), [0, 1], [0.94, 1.06]) },
+    ],
+  }));
+
+  return (
+    <Animated.View
+      style={[styles.aura, { width: cote * 2.6, height: cote * 2.6 }, groupe]}
+      pointerEvents="none"
+    >
+      {LUEURS.map((l) => (
+        <Lueur key={l.teinte} taille={cote * l.part} {...l} />
+      ))}
+    </Animated.View>
+  );
+}
+
+/** Une lueur : un degrade radial qui derive et respire pour lui-meme.
+ *
+ * Trois arrets et non deux : d'un plein au transparent, le bord se lit comme
+ * un cercle net. La marche du milieu casse ce contour — c'est ce qui remplace
+ * le flou, absent d'un projet sans Skia.
+ */
+function Lueur({
+  teinte,
+  taille,
+  dx,
+  dy,
+  periode,
+  retard,
+}: {
+  teinte: string;
+  taille: number;
+  dx: number;
+  dy: number;
+  periode: number;
+  retard: number;
+}) {
+  const reduced = useReducedMotion();
+  const derive = useSharedValue(0);
+  const id = `lueur-${teinte.slice(1)}`;
+
+  useEffect(() => {
+    if (reduced) {
+      derive.set(0.5);
+      return;
+    }
+    derive.set(
+      withDelay(
+        retard,
+        withRepeat(withTiming(1, { duration: periode, easing: Easing.inOut(Easing.sin) }), -1, true),
+      ),
+    );
+  }, [derive, periode, retard, reduced]);
+
+  const style = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: interpolate(derive.get(), [0, 1], [-dx, dx]) },
+      { translateY: interpolate(derive.get(), [0, 1], [dy, -dy]) },
+      { scale: interpolate(derive.get(), [0, 1], [0.86, 1.14]) },
+    ],
+  }));
+
+  return (
+    <Animated.View
+      style={[
+        styles.lueur,
+        { width: taille, height: taille, marginLeft: -taille / 2, marginTop: -taille / 2 },
+        style,
+      ]}
+      pointerEvents="none"
+    >
+      <Svg width="100%" height="100%">
+        <Defs>
+          <RadialGradient id={id} cx="50%" cy="50%" r="50%">
+            <Stop offset="0" stopColor={teinte} stopOpacity="0.62" />
+            <Stop offset="0.42" stopColor={teinte} stopOpacity="0.2" />
+            <Stop offset="1" stopColor={teinte} stopOpacity="0" />
+          </RadialGradient>
+        </Defs>
+        <Circle cx="50%" cy="50%" r="50%" fill={`url(#${id})`} />
+      </Svg>
+    </Animated.View>
+  );
+}
+
 /**
  * Ce que vous avez fait de ce titre, tous les deux.
  *
@@ -366,6 +545,9 @@ function Scene({
   const reduced = useReducedMotion();
   const entree = useSharedValue(reduced ? 1 : 0);
 
+  /** Le match fort : gardé des deux côtés. Le geste rare, celui qui range. */
+  const fort = track.moi === 'garde' && track.autre === 'garde';
+
   useEffect(() => {
     if (reduced) return;
     entree.set(withTiming(1, { duration: 260, easing: Easing.out(Easing.cubic) }));
@@ -399,15 +581,23 @@ function Scene({
         <View style={styles.voile} />
 
         <Animated.View style={[styles.centre, style]}>
-          <Image
-            source={{ uri: track.cover }}
-            style={[styles.pochette, { width: cote, height: cote }]}
-            contentFit="cover"
-            transition={220}
-            cachePolicy="memory-disk"
-            recyclingKey={String(track.id)}
-          />
-          <Text style={styles.mention} numberOfLines={2}>
+          <View style={styles.halo}>
+            {fort ? <Aura cote={cote} entree={entree} /> : null}
+            {/* La lueur vit sur le cadre et non sur l'image : `boxShadow`
+                n'existe pas dans le style d'une image expo, et une ombre
+                portee se dessine de toute facon autour d'une vue. */}
+            <View style={[styles.cadre, { width: cote, height: cote }, fort && styles.cadreFort]}>
+              <Image
+                source={{ uri: track.cover }}
+                style={[styles.pochette, { width: cote, height: cote }]}
+                contentFit="cover"
+                transition={220}
+                cachePolicy="memory-disk"
+                recyclingKey={String(track.id)}
+              />
+            </View>
+          </View>
+          <Text style={[styles.mention, fort && styles.mentionFort]} numberOfLines={2}>
             {mention}
           </Text>
           <Text style={styles.titre} numberOfLines={2}>
@@ -445,7 +635,27 @@ const styles = StyleSheet.create({
   pale: { opacity: 0.5 },
   voile: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(8, 8, 10, 0.62)' },
 
-  pochette: { borderRadius: radius.lg, backgroundColor: color.bgElevated, marginBottom: space.lg },
+  // La marge est passée au halo : la pochette est posée dedans, et la garder
+  // ici décalerait l'aura vers le haut d'autant.
+  pochette: { borderRadius: radius.lg, backgroundColor: color.bgElevated },
+  // Deux ombres dorées superposées — une serrée qui dessine le bord, une large
+  // qui fait la lueur. C'est ce qui donne à la lumière l'air de SORTIR de
+  // l'artwork ; sans elle, l'aura reste un décor posé derrière une image.
+  // `boxShadow` demande RN 0.76+ sur la Nouvelle Architecture, ce qu'Expo 54
+  // active par défaut.
+  cadre: { borderRadius: radius.lg },
+  cadreFort: {
+    boxShadow:
+      '0 0 24px 1px rgba(245, 184, 65, 0.45), 0 0 72px 14px rgba(245, 184, 65, 0.22)',
+  },
+  halo: { alignItems: 'center', justifyContent: 'center', marginBottom: space.lg },
+  // Centrée sur la pochette, et bien plus grande qu'elle : c'est ce
+  // débordement qui fait la lumière. Surtout pas d'`overflow: hidden` sur le
+  // halo, il la rognerait au carré.
+  aura: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
+  // Posées au centre du groupe, puis décalées de leur demi-taille : c'est leur
+  // dérive qui les écarte, pas une position de départ écrite en dur.
+  lueur: { position: 'absolute', left: '50%', top: '50%' },
   // En capitales par le style et non dans le texte : la phrase porte un
   // prenom, et l'ecrire deja crie interdirait de le rendre autrement un jour.
   // `lineHeight` explicite parce qu'elle peut passer sur deux lignes.
@@ -458,6 +668,16 @@ const styles = StyleSheet.create({
     color: color.accent,
     textAlign: 'center',
     paddingHorizontal: space.xl,
+  },
+  /** Le doré de « je garde », repris tel quel : la mention et l'aura disent la
+   *  même chose, donc elles portent la même couleur. La lueur du texte est
+   *  faible exprès — un texte trop nimbé perd son contour et devient sale à
+   *  cette taille. */
+  mentionFort: {
+    color: color.save,
+    textShadowColor: 'rgba(245, 184, 65, 0.55)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 10,
   },
   titre: {
     ...type.display,

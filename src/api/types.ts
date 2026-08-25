@@ -110,6 +110,36 @@ export type Card = {
 export type SwipeAction = 'like' | 'skip' | 'save' | 'block';
 
 /**
+ * Un geste passe, tel que l'historique le rend.
+ *
+ * `ms_played` est ce qui a ete reellement ecoute avant de trancher. Il est la
+ * pour une raison precise : c'est souvent lui qui rappelle POURQUOI on a fait
+ * ca — deux secondes, c'etait un reflexe ; vingt-cinq, c'etait un choix.
+ */
+export type GesteHistorique = {
+  track: Track;
+  action: SwipeAction;
+  /** Millisecondes depuis l'epoque, cote serveur. */
+  at: number;
+  ms_played: number;
+};
+
+/**
+ * La fiche d'un artiste.
+ *
+ * `abonnes` compte ceux qui le suivent **sur Reso**, et c'est un chiffre
+ * different de `artist.fans`, qui vient de Deezer et se compte en millions.
+ * Le premier dit « qui, autour de toi, ecoute ca » ; le second dit sa taille
+ * dans le monde. Les deux sont vrais, ils ne repondent pas a la meme question.
+ */
+export type FicheArtiste = {
+  artist: Artist;
+  tracks: Track[];
+  abonnes: number;
+  suivi: boolean;
+};
+
+/**
  * Ce que le moteur repond a un swipe.
  *
  * Volontairement maigre. Il rendait aussi le taux d'accroche, la part

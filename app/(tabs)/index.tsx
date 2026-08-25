@@ -43,6 +43,8 @@ import {
   type Palette,
 } from '../../src/state/fond';
 import { getDeviceId } from '../../src/state/session';
+import type { Garde } from '../../src/state/gardesSeance';
+import { poserDansLaSeance, useGardesSeance } from '../../src/state/gardesSeance';
 import { filerVersSpotify } from '../../src/state/spotifySync';
 import { marquerPasseFait, passeDejaFait } from '../../src/state/passe';
 import { useFeed } from '../../src/state/useFeed';
@@ -135,9 +137,15 @@ export default function FilScreen() {
     void getDeviceId().then(() => setPret(true));
   }, []);
 
-  /** Les pochettes gardees depuis l'ouverture. Remis a zero en quittant l'app,
-   *  volontairement : c'est une trace de seance, pas un score a defendre. */
-  const [gardes, setGardes] = useState<string[]>([]);
+  /** Les titres gardes depuis l'ouverture. Remis a zero en quittant l'app,
+   *  volontairement : c'est une trace de seance, pas un score a defendre.
+   *
+   *  Dans un magasin de module et non dans cet etat-ci : la bibliotheque et
+   *  l'historique doivent pouvoir en **retirer** un titre, et ils ne sont pas
+   *  montes en meme temps que le fil. Voir [[gardesSeance]] — c'est ce qui
+   *  laissait une pochette retiree des gardes trainer dans la trace jusqu'a
+   *  la fermeture de l'application. */
+  const gardes = useGardesSeance();
   /** L'artiste dont on envisage de ne plus jamais entendre parler. */
   const [aBannir, setABannir] = useState<Card | null>(null);
   /**
@@ -156,7 +164,7 @@ export default function FilScreen() {
     dx: number;
     dy: number;
   } | null>(null);
-  const volEnCours = useRef<string | null>(null);
+  const volEnCours = useRef<Garde | null>(null);
   const prochainVol = useRef(0);
 
   /**
@@ -329,10 +337,10 @@ export default function FilScreen() {
         // La pochette part vers la trace. Le titre n'y sera compte qu'a
         // l'atterrissage : c'est le vol qui explique ou il va, le compter
         // avant le rendrait muet.
-        if (cover) {
+        if (garde && cover) {
           const interrompu = volEnCours.current;
-          if (interrompu) setGardes((g) => [...g, interrompu]);
-          volEnCours.current = cover;
+          if (interrompu) poserDansLaSeance(interrompu);
+          volEnCours.current = { id: garde.id, cover };
           setEnVol({ id: ++prochainVol.current, cover, dx, dy });
         }
       }
@@ -352,7 +360,7 @@ export default function FilScreen() {
     setEnVol(null);
     if (!arrive) return;
     vibrer.garde();
-    setGardes((g) => [...g, arrive]);
+    poserDansLaSeance(arrive);
   }, []);
 
   const onSeuil = useCallback(() => vibrer.seuil(), []);

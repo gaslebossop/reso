@@ -14,6 +14,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { prisme } from '../../src/api/client';
+import { EnteteTitre, Feuille, LigneAction } from '../../src/components/Feuille';
 import type { ProfilSocial, Track } from '../../src/api/types';
 import { IconeChevron, IconeRetour } from '../../src/components/Icones';
 import { Visage } from '../../src/components/Visage';
@@ -154,6 +155,104 @@ export default function ProfilPublic() {
     vibrer.action();
     void Linking.openURL(lienVers(t));
   }, []);
+
+  /**
+   * L'appui long sur un titre garde par quelqu'un d'autre.
+   *
+   * **Le casier de quelqu'un est une recommandation.** C'est meme la seule
+   * qui ne vienne pas du moteur : on ouvre un profil parce qu'on veut savoir
+   * ce que cette personne ecoute, et jusqu'ici la seule chose qu'on pouvait
+   * en faire etait de partir vers Spotify. Le titre repartait donc chez le
+   * concurrent, et le gout n'apprenait rien.
+   *
+   * L'appui simple garde ce role — ouvrir la ou l'on ecoute — et l'appui long
+   * ouvre ce qu'on peut en faire ICI. Deux gestes, deux mondes, et le premier
+   * ne bouge pas : personne n'a a reapprendre ce qu'il connait.
+   *
+   * **Seulement chez les autres.** Sur son propre casier, « je garde » n'a
+   * aucun sens (c'est deja fait) et « suivre l'artiste » y aurait sa place —
+   * mais une feuille a une seule ligne utile n'est pas une feuille, c'est un
+   * bouton perdu. La bibliotheque a deja sa fiche pour ca.
+   */
+  const [feuille, setFeuille] = useState<Track | null>(null);
+  const [enCours, setEnCours] = useState<string | null>(null);
+  const [dit, setDit] = useState<string | null>(null);
+  const [suivis, setSuivis] = useState<Set<number>>(new Set());
+
+  // Qui je suis deja : sans ca, la feuille proposerait de suivre un artiste
+  // que je suis depuis six mois. Sans garde de connexion : cet ecran ne
+  // s'ouvre que sur un profil, qui exige deja un compte, et un echec laisse
+  // simplement la feuille proposer « Suivre ».
+  useEffect(() => {
+    prisme
+      .artistesSuivis()
+      .then((r) => setSuivis(new Set(r.artists.map((a) => a.id))))
+      .catch(() => {});
+  }, []);
+
+  const tenir = useCallback((t: Track) => {
+    vibrer.grave();
+    setDit(null);
+    setFeuille(t);
+  }, []);
+
+  const garder = useCallback(async (t: Track) => {
+    setEnCours('save');
+    setDit(null);
+    try {
+      await prisme.ajouterAuGout({ trackIds: [t.id] });
+      setDit('Gardé. Il est dans ta bibliothèque.');
+    } catch (e) {
+      setDit(e instanceof Error ? e.message : 'Impossible pour l’instant.');
+    } finally {
+      setEnCours(null);
+    }
+  }, []);
+
+  const aimer = useCallback(async (t: Track) => {
+    setEnCours('like');
+    setDit(null);
+    try {
+      // Le meme signal qu'un « j'aime » du fil, sans duree d'ecoute : on n'a
+      // rien ecoute ici, et inventer des secondes gonflerait la recompense.
+      await prisme.event({ track: t, action: 'like', msPlayed: 0, previewMs: 30000 });
+      setDit('Aimé. Ton Prisme en tient compte.');
+    } catch (e) {
+      setDit(e instanceof Error ? e.message : 'Impossible pour l’instant.');
+    } finally {
+      setEnCours(null);
+    }
+  }, []);
+
+  const suivreArtiste = useCallback(
+    async (t: Track) => {
+      const deja = suivis.has(t.artist.id);
+      setEnCours('suivre');
+      setDit(null);
+      // Optimiste : la route est idempotente cote moteur.
+      setSuivis((s) => {
+        const n = new Set(s);
+        if (deja) n.delete(t.artist.id);
+        else n.add(t.artist.id);
+        return n;
+      });
+      try {
+        await prisme.suivreArtiste(t.artist.id, !deja);
+        setDit(deja ? `Tu ne suis plus ${t.artist.name}.` : `Tu suis ${t.artist.name}.`);
+      } catch {
+        setSuivis((s) => {
+          const n = new Set(s);
+          if (deja) n.add(t.artist.id);
+          else n.delete(t.artist.id);
+          return n;
+        });
+        setDit('Impossible pour l’instant.');
+      } finally {
+        setEnCours(null);
+      }
+    },
+    [suivis],
+  );
 
   const estMoi = monId !== null && profil !== null && profil.id === monId;
 
@@ -463,8 +562,13 @@ export default function ProfilPublic() {
                       key={t.id}
                       style={({ pressed }) => [styles.carte, { width: cote }, pressed && styles.pale]}
                       onPress={() => ouvrir(t)}
+                      onLongPress={estMoi ? undefined : () => tenir(t)}
+                      delayLongPress={280}
                       accessibilityRole="button"
                       accessibilityLabel={`${t.title} par ${t.artist.name}`}
+                      accessibilityHint={
+                        estMoi ? undefined : 'Appui long pour le garder, l’aimer ou voir l’artiste'
+                      }
                     >
                       <Image
                         source={{ uri: t.cover }}
@@ -491,6 +595,51 @@ export default function ProfilPublic() {
           </>
         )}
       </ScrollView>
+
+      {/* L'ordre est celui de l'envie : d'abord ce qu'on fait du TITRE — le
+          garder, l'aimer —, ensuite ce qu'on fait de l'ARTISTE. Et « voir
+          l'artiste » en dernier parce que c'est le seul qui quitte l'ecran :
+          une ligne qui emmene ailleurs, posee au milieu, fait rater les trois
+          autres. */}
+      <Feuille visible={feuille !== null} onFermer={() => setFeuille(null)}>
+        {feuille ? (
+          <>
+            <EnteteTitre track={feuille} sous={dit ?? `Gardé par ${profil?.nom || 'cette personne'}`} />
+            <LigneAction
+              titre="Je garde"
+              sous="Il entre dans ta bibliothèque."
+              accent
+              occupe={enCours === 'save'}
+              onPress={() => garder(feuille)}
+            />
+            <LigneAction
+              titre="J’aime"
+              sous="Il compte dans ton goût, sans être rangé."
+              occupe={enCours === 'like'}
+              onPress={() => aimer(feuille)}
+            />
+            <LigneAction
+              titre={suivis.has(feuille.artist.id) ? `Ne plus suivre ${feuille.artist.name}` : `Suivre ${feuille.artist.name}`}
+              sous={
+                suivis.has(feuille.artist.id)
+                  ? 'Tu le suis déjà.'
+                  : 'Ses sorties comptent pour ton Prisme.'
+              }
+              occupe={enCours === 'suivre'}
+              onPress={() => suivreArtiste(feuille)}
+            />
+            <LigneAction
+              titre="Voir l’artiste"
+              sous="Ses titres, et qui le suit sur Reso."
+              onPress={() => {
+                const artiste = feuille.artist.id;
+                setFeuille(null);
+                router.push(`/artiste/${artiste}`);
+              }}
+            />
+          </>
+        ) : null}
+      </Feuille>
     </View>
   );
 }

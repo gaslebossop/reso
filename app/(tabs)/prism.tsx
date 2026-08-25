@@ -196,6 +196,21 @@ export default function PrismScreen() {
         <IconeChevron couleur={color.textFaint} />
       </Pressable>
 
+      {/* L'historique juste apres l'ajout, et pour la meme raison : les deux
+          repondent a « mon Prisme ne me ressemble pas ». L'un ajoute ce qui
+          manque, l'autre retire ce qui n'aurait pas du y entrer — un titre
+          passe d'un coup de pouce en marchant, un garde a la place d'un
+          skip. Ranger ca dans les reglages, c'etait le cacher. */}
+      <Pressable
+        onPress={() => router.push('/historique')}
+        style={({ pressed }) => [styles.ajouter, pressed && styles.ajouterPresse]}
+        accessibilityRole="button"
+        accessibilityLabel="Ton historique : revenir sur un geste"
+      >
+        <Text style={styles.ajouterTexte}>Ton historique</Text>
+        <IconeChevron couleur={color.textFaint} />
+      </Pressable>
+
       {artistes.length === 0 ? (
         <Vide />
       ) : (

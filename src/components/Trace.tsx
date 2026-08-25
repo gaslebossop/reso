@@ -10,6 +10,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { useEncreDouce } from '../state/fond';
+import type { Garde } from '../state/gardesSeance';
 import { chiffres, color, radius, space, type } from '../theme/tokens';
 
 /**
@@ -44,8 +45,13 @@ export const VIGNETTE = 34;
 export const RECOUVREMENT = 11;
 
 type Props = {
-  /** Les pochettes gardees depuis l'ouverture du fil, dans l'ordre. */
-  gardes: string[];
+  /** Les titres gardes depuis l'ouverture du fil, dans l'ordre.
+   *
+   * Des objets et non des adresses de pochettes : la trace doit pouvoir
+   * **perdre** un titre — retire des gardes, ou geste corrige — et deux titres
+   * peuvent partager une pochette (un album, une compilation). L'identifiant
+   * est le seul moyen de savoir lequel s'en va. */
+  gardes: Garde[];
 };
 
 /**
@@ -108,14 +114,14 @@ function TraceImpl({ gardes }: Props) {
           <Text style={[styles.resteTexte, chiffres]}>+{reste}</Text>
         </View>
       ) : null}
-      {montrees.map((cover, i) => {
+      {montrees.map(({ id, cover }, i) => {
         const premiere = i === 0 && reste === 0;
         // Un seul type de conteneur pour toutes : si la derniere repassait de
         // Animated.View a View, elle changerait d'identite et serait remontee
         // a chaque garde.
         return (
           <Animated.View
-            key={`${cover}-${premierePlace + i}`}
+            key={`${id}-${premierePlace + i}`}
             style={[
               styles.vignette,
               premiere ? null : { marginLeft: -RECOUVREMENT },

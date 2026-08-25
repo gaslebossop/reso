@@ -2,7 +2,8 @@ import type { AuthConfig } from '../auth/gnetwork';
 import { accessToken } from '../auth/gnetwork';
 import { getDeviceId } from '../state/session';
 import type {
-  Artist, Card, EventResult, Gen, Me, Notifs, Prefs, Prism, ProfilSocial, Stats, SwipeAction, Track,
+  Artist, Card, EventResult, FicheArtiste, Gen, GesteHistorique, Me, Notifs, Prefs, Prism,
+  ProfilSocial, Stats, SwipeAction, Track,
 } from './types';
 
 /**
@@ -367,6 +368,32 @@ export const prisme = {
 
   /** Les artistes choisis a l'inscription, dans l'ordre ou ils l'ont ete. */
   anchors: () => call<{ artists: Artist[] }>('/taste/anchors'),
+
+  /**
+   * Les derniers gestes, du plus recent au plus ancien.
+   *
+   * Un seul geste par titre : rejuger le meme titre dix fois en rechargeant le
+   * fil ne raconte rien et noierait le reste.
+   */
+  historique: () => call<{ gestes: GesteHistorique[] }>('/historique'),
+
+  /**
+   * Rattraper un geste rate.
+   *
+   * Cote moteur, cela **remplace** tous les gestes portant sur ce titre : un
+   * faux signal ne se compense pas, il s'efface. L'heure et la duree d'ecoute
+   * d'origine sont conservees, la recompense est recalculee, et la
+   * bibliotheque suit — « je garde » y range le titre, tout autre verbe l'en
+   * sort.
+   */
+  corrigerGeste: (trackId: number, action: SwipeAction) =>
+    post<{ track_id: number; action: SwipeAction; reward: number }>('/historique/corriger', {
+      track_id: trackId,
+      action,
+    }),
+
+  /** La fiche d'un artiste : qui il est, ses titres, qui le suit ici. */
+  artiste: (artistId: number) => call<FicheArtiste>(`/artists/${artistId}`),
 
   /** Les artistes suivis, du plus recemment suivi au plus ancien.
    *  Exige un compte du reseau G : c'est justement ce qu'on veut retrouver
