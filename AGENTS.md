@@ -1039,6 +1039,31 @@ confondus : le même son à quatre amis coûte un. Ce qui est rare, c'est le
 morceau qu'on juge digne d'être envoyé, pas le nombre de gens à qui on pense.
 Le dépassement rend **429, pas 403** — voir juste en dessous.
 
+### Un son, une personne, une fois
+
+**Signalé le 2026-08-25 :** on pouvait envoyer le même son à la même personne
+autant de fois qu'on voulait. Chaque envoi faisait une ligne, donc une carte et
+une notification de plus chez elle.
+
+**Le quota n'y pouvait rien, et ne pouvait pas y pouvoir :** il compte des
+titres distincts par jour, donc renvoyer un titre déjà parti est gratuit *par
+construction* — c'est précisément ce qui rend « le même son à quatre amis coûte
+un ». C'était la dernière porte ouverte au harcèlement.
+
+`UNIQUE (de, a, track_id)` et `ON CONFLICT DO NOTHING`. Trois choses à ne pas
+défaire :
+
+- **`DO NOTHING`, jamais `DO UPDATE`.** Rafraîchir `created_at` ferait remonter
+  la notification en tête de liste chez l'autre : un doublon déguisé.
+- **La migration nettoie avant de créer l'index**, en gardant la ligne la plus
+  ancienne — celle qui porte la vraie date et, le cas échéant, sa livraison.
+  Sans ce ménage, l'index unique refuserait de se créer sur une base qui a déjà
+  des doublons, et le démarrage échouerait.
+- **`GET /social/amis?track_id=` marque les amis qui l'ont déjà**, et la feuille
+  les affiche cochés et non tapables. L'envoi étant idempotent, taper dans le
+  vide et voir « envoyé » alors que rien ne part serait pire que le doublon
+  qu'on vient de fermer.
+
 ### Le retour couvre les DEUX gestes positifs
 
 **Signalé sur appareil le 2026-08-25 :** un son envoyé, aimé par le

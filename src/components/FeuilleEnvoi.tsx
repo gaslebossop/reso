@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { prisme } from '../api/client';
-import type { Gen, Track } from '../api/types';
+import type { Ami, Track } from '../api/types';
 import { vibrer } from '../state/vibration';
 import { color, space, type } from '../theme/tokens';
 import { EnteteTitre, Feuille } from './Feuille';
@@ -29,6 +29,13 @@ import { Visage } from './Visage';
  * après un tap, et pourquoi on le relit de la réponse plutôt que de le
  * décrémenter soi-même.
  *
+ * ## Ce qui est déjà parti est marqué avant le tap
+ *
+ * L'envoi est idempotent : un son, une personne, une fois. Un ami qui a déjà
+ * reçu ce titre arrive donc déjà coché et n'est plus tapable — sans ça on
+ * taperait dans le vide, et voir « envoyé » alors que rien ne part est pire
+ * que le doublon qu'on vient de fermer.
+ *
  * ## Le coche part avant la réponse
  *
  * Optimiste, comme le bouton « suivre » de la carte. Un refus décoche et
@@ -45,7 +52,7 @@ export function FeuilleEnvoi({
   visible: boolean;
   onFermer: () => void;
 }) {
-  const [amis, setAmis] = useState<Gen[] | null>(null);
+  const [amis, setAmis] = useState<Ami[] | null>(null);
   const [restants, setRestants] = useState<number | null>(null);
   const [envoyes, setEnvoyes] = useState<Set<string>>(new Set());
   const [erreur, setErreur] = useState<string | null>(null);
@@ -59,11 +66,13 @@ export function FeuilleEnvoi({
     setEnvoyes(new Set());
     setErreur(null);
     prisme
-      .amis()
+      // Avec le titre : chaque ami dit s'il l'a déjà reçu de moi.
+      .amis(track?.id)
       .then((r) => {
         if (!vivant) return;
         setAmis(r.amis);
         setRestants(r.restants);
+        setEnvoyes(new Set(r.amis.filter((a) => a.envoye).map((a) => a.user_id)));
       })
       .catch((e) => {
         if (vivant) setErreur(e instanceof Error ? e.message : 'Liste d’amis indisponible');
@@ -71,10 +80,10 @@ export function FeuilleEnvoi({
     return () => {
       vivant = false;
     };
-  }, [visible]);
+  }, [visible, track?.id]);
 
   const envoyer = useCallback(
-    async (g: Gen) => {
+    async (g: Ami) => {
       if (!track || envoyes.has(g.user_id)) return;
       vibrer.action();
       setEnvoyes((s) => new Set(s).add(g.user_id));

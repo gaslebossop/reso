@@ -2,7 +2,7 @@ import type { AuthConfig } from '../auth/gnetwork';
 import { accessToken } from '../auth/gnetwork';
 import { getDeviceId } from '../state/session';
 import type {
-  Artist, Card, EventResult, FicheArtiste, Gen, GesteHistorique, Me, Notifs, Prefs, Prism,
+  Ami, Artist, Card, EventResult, FicheArtiste, Gen, GesteHistorique, Me, Notifs, Prefs, Prism,
   ProfilSocial, Stats, SwipeAction, Track,
 } from './types';
 
@@ -538,14 +538,17 @@ export const prisme = {
    *  son ouverture, et un second aller-retour pour un seul entier serait payé
    *  à chaque appui sur l'icône. Le compteur vient du serveur — le calculer
    *  ici le ferait diverger dès qu'on envoie depuis un deuxième appareil. */
-  amis: () => call<{ amis: Gen[]; restants: number }>('/social/amis'),
+  amis: (trackId?: number) =>
+    call<{ amis: Ami[]; restants: number }>(
+      trackId === undefined ? '/social/amis' : `/social/amis?track_id=${trackId}`,
+    ),
 
   /** Envoyer un titre à un ami. `aQui` est un identifiant ou un @handle.
    *
    *  403 si ce n'est pas un ami, ou si les trois sons du jour sont partis. Le
    *  message du serveur est écrit pour être affiché tel quel. */
   partager: (trackId: number, aQui: string) =>
-    call<{ envoye: boolean; restants: number }>('/social/partager', {
+    call<{ envoye: boolean; deja: boolean; restants: number }>('/social/partager', {
       method: 'POST',
       body: JSON.stringify({ track_id: trackId, a: aQui }),
     }),

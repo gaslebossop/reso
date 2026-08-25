@@ -124,6 +124,19 @@ export type Card = {
 export type SwipeAction = 'like' | 'skip' | 'save' | 'block';
 
 /**
+ * Un ami, dans la feuille d'envoi.
+ *
+ * C'est un [[Gen]] plus une marque : `envoye` dit qu'il a **déjà reçu ce
+ * titre-là de moi**. L'envoi est idempotent — un son, une personne, une fois —
+ * donc la feuille doit le montrer avant le tap. Taper dans le vide et voir
+ * « envoyé » alors que rien n'est parti serait pire que le doublon qu'on a
+ * fermé.
+ *
+ * Faux partout quand la feuille est ouverte sans titre.
+ */
+export type Ami = Gen & { envoye?: boolean };
+
+/**
  * Un geste passe, tel que l'historique le rend.
  *
  * `ms_played` est ce qui a ete reellement ecoute avant de trancher. Il est la
