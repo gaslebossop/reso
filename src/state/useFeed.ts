@@ -169,7 +169,9 @@ export function useFeed(enabled: boolean) {
       // Fire-and-forget : aucun swipe n'attend le reseau. Un evenement perdu
       // degrade l'apprentissage, jamais l'experience : la carte est deja
       // partie, on ne la fait pas revenir.
-      prisme.event({ track: top.track, action, msPlayed, previewMs }).catch(() => {});
+      prisme
+        .event({ track: top.track, action, msPlayed, previewMs, fromShare: !!top.envoye_par })
+        .catch(() => {});
     },
     [state.cards, load],
   );

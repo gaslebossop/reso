@@ -417,6 +417,38 @@ export function IconePartage({ couleur, taille = 20 }: { couleur: string; taille
 }
 
 /**
+ * Envoyer a quelqu'un.
+ *
+ * Une fleche qui part, sur la meme grille de 24 et la meme epaisseur que les
+ * autres. Volontairement pas l'icone systeme de partage (`IconePartage`, juste
+ * au-dessus) : celle-la fait sortir de l'application — elle ouvre la feuille
+ * du telephone — alors que celle-ci envoie a quelqu'un qui est ici. Deux
+ * gestes differents ne peuvent pas porter le meme dessin.
+ */
+export function IconeEnvoyer({ couleur, taille = 20 }: { couleur: string; taille?: number }) {
+  return (
+    <Cadre taille={taille}>
+      <Path
+        d="M20.4 3.6 L10.6 13.4"
+        fill="none"
+        stroke={couleur}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Path
+        d="M20.4 3.6 L14.2 20.4 L10.6 13.4 L3.6 9.8 Z"
+        fill="none"
+        stroke={couleur}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Cadre>
+  );
+}
+
+/**
  * La silhouette d'un compte sans photo.
  *
  * **Elle remplit sa grille de bord a bord**, et c'est tout le sujet. Dessinee

@@ -534,7 +534,22 @@ export default function ProfilPublic() {
                   contentContainerStyle={styles.fileSuivisContenu}
                 >
                   {profil.suivis.map((a) => (
-                    <View key={a.id} style={styles.suiviArtiste}>
+                    // Le portrait mene a la fiche de l'artiste. C'est le seul
+                    // endroit de cet ecran ou l'on quitte la personne pour
+                    // aller vers de la musique, et c'est aussi la question
+                    // qu'on se pose devant la liste de quelqu'un d'autre :
+                    // « lui, c'est qui ? ». La feuille des gardes offre deja
+                    // « Voir l'artiste » ; ces portraits-la n'avaient rien.
+                    <Pressable
+                      key={a.id}
+                      style={({ pressed }) => [styles.suiviArtiste, pressed && styles.pale]}
+                      onPress={() => {
+                        vibrer.choix();
+                        router.push(`/artiste/${a.id}`);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Voir la fiche de ${a.name}`}
+                    >
                       <Image
                         source={{ uri: a.picture }}
                         style={styles.suiviPortrait}
@@ -542,12 +557,11 @@ export default function ProfilPublic() {
                         cachePolicy="memory-disk"
                         transition={160}
                         recyclingKey={String(a.id)}
-                        accessibilityLabel={a.name}
                       />
                       <Text style={styles.suiviNom} numberOfLines={1}>
                         {a.name}
                       </Text>
-                    </View>
+                    </Pressable>
                   ))}
                 </ScrollView>
               </View>

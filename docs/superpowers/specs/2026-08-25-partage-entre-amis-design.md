@@ -189,7 +189,15 @@ remettre quoi que ce soit.
 | Genre | Dérivé de | Texte |
 |---|---|---|
 | `partage_recu` | `social_partages` où `a = moi` | « Sam t'a envoyé *Fantôme* » |
-| `partage_garde` | `social_partages` où `de = moi`, joint à la bibliothèque du destinataire | « Sam a gardé le son que tu lui as envoyé » |
+| `partage_aime` | `social_partages` où `de = moi`, joint aux swipes `like` du destinataire | « Sam a aimé le son que tu lui as envoyé » |
+| `partage_garde` | idem, joint à sa bibliothèque (ou à un swipe `save`) | « Sam a gardé le son que tu lui as envoyé » |
+
+**Corrigé le 2026-08-25, après un essai sur appareil.** Cette section ne
+prévoyait que `partage_garde`, dérivé de `library_tracks` seule — ce qui rendait
+invisible le « j'aime », c'est-à-dire le geste le plus fréquent des deux. « Le
+positif » avait été rétréci en « le gardé » sans que ça se voie. Les deux gestes
+sont rendus, distincts, et un envoi ne produit **qu'une** notification : celle
+du geste le plus fort.
 
 `partage_recu` est le filet de sécurité : une carte peut être ratée — l'app
 fermée entre la livraison et le swipe — mais la notification, elle, reste.

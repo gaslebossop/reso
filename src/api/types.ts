@@ -105,6 +105,20 @@ export type Card = {
    * doit valoir « pas suivi » plutot que casser la carte.
    */
   followed?: boolean;
+  /**
+   * Qui t'envoie ce titre, si c'est un ami qui te l'a partagé.
+   *
+   * Porté par la carte et non récupéré à part : la signature doit être dans
+   * le bon état dès la première image, comme `followed` juste au-dessus.
+   *
+   * Sa présence change trois choses, et c'est tout : la ligne de mention
+   * devient la signature, un « passer » n'est plus compté dans le goût, et
+   * l'icône d'envoi disparaît — on ne renvoie pas un son qu'on vient de
+   * recevoir sans l'avoir jugé.
+   *
+   * Optionnel : un moteur antérieur au partage ne l'envoie pas.
+   */
+  envoye_par?: Gen;
 };
 
 export type SwipeAction = 'like' | 'skip' | 'save' | 'block';
@@ -297,14 +311,33 @@ export type ProfilSocial = {
   suivis?: Artist[];
 };
 
-/** Un nouvel abonne, ou un titre qu'on t'a repris. Le moteur n'en invente pas
- *  d'autres : ce sont les deux seuls faits que la base porte avec une date. */
+/**
+ * Ce qui s'est passé pendant qu'on n'était pas là.
+ *
+ * Quatre genres, et le moteur n'en invente pas d'autres : ce sont les seuls
+ * faits que la base porte déjà avec une date. Ils sont **dérivés**, jamais
+ * écrits — d'où le fait qu'aucun ne puisse mentir.
+ *
+ * `partage_aime` et `partage_garde` disent ce qu'un ami a fait du son qu'on lui
+ * a envoyé. **Les deux, et pas seulement le second** : un « j'aime » ne range
+ * rien en bibliothèque, et s'en tenir au gardé rendait invisible le geste le
+ * plus fréquent des deux. Ils restent distincts parce que garder et aimer ne
+ * racontent pas la même rencontre — c'est déjà la règle de l'écran des titres
+ * en commun. Un envoi ne produit qu'une notification, celle du geste le plus
+ * fort.
+ *
+ * Il n'y a pas de pendant négatif, et c'est délibéré : dire à quelqu'un qu'on
+ * a zappé son morceau est une petite cruauté gratuite.
+ *
+ * Un genre inconnu doit être **ignoré**, pas affiché : un moteur plus récent
+ * que l'app en enverrait un que celle-ci ne sait pas écrire.
+ */
 export type Notif = {
-  genre: 'abonne' | 'match';
+  genre: 'abonne' | 'match' | 'partage_recu' | 'partage_aime' | 'partage_garde';
   /** Millisecondes epoch. */
   at: number;
   gen: Gen;
-  /** Le titre repris. Nul sur un abonnement. */
+  /** Le titre repris, reçu ou gardé. Nul sur un abonnement. */
   track: Track | null;
 };
 

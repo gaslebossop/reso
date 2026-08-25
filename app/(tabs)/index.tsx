@@ -29,6 +29,7 @@ import type { Card, SwipeAction } from '../../src/api/types';
 import { player } from '../../src/audio/player';
 import { Barre } from '../../src/components/Barre';
 import { Envol } from '../../src/components/Envol';
+import { FeuilleEnvoi } from '../../src/components/FeuilleEnvoi';
 import { cadreCarte, Passage, type Verdict } from '../../src/components/Passage';
 import { IconeCoeur, IconeCroix, IconeGarder } from '../../src/components/Icones';
 import { RECOUVREMENT, Trace, VIGNETTE } from '../../src/components/Trace';
@@ -148,6 +149,12 @@ export default function FilScreen() {
   const gardes = useGardesSeance();
   /** L'artiste dont on envisage de ne plus jamais entendre parler. */
   const [aBannir, setABannir] = useState<Card | null>(null);
+  /** Le titre dont la feuille d'envoi est ouverte. `null` = fermee.
+   *
+   *  La carte et non le titre seul : la feuille montre la pochette, et une
+   *  carte swipee pendant que la feuille est ouverte ne doit pas changer ce
+   *  qu'on est en train d'envoyer sous les doigts. */
+  const [aEnvoyer, setAEnvoyer] = useState<Card | null>(null);
   /**
    * La pochette en cours de vol vers la trace, s'il y en a une.
    *
@@ -504,6 +511,10 @@ export default function FilScreen() {
                 onDemandeBannir={demanderBannir}
                 suivi={estSuivi(card)}
                 onSuivre={(on) => suivre(card.track.artist.id, on)}
+                /* Seulement la carte du dessus : une icone tapable sur une
+                   carte qu'on ne voit pas est un piege, et la pile en porte
+                   trois. */
+                onEnvoyer={i === 0 ? () => setAEnvoyer(card) : undefined}
               />
             ))
         ) : (
@@ -540,6 +551,12 @@ export default function FilScreen() {
       {passe && top && scene.w > 0 ? (
         <Didacticiel largeurCarte={carte.cote} onClose={fermerPasse} />
       ) : null}
+
+      <FeuilleEnvoi
+        track={aEnvoyer?.track ?? null}
+        visible={aEnvoyer !== null}
+        onFermer={() => setAEnvoyer(null)}
+      />
     </View>
   );
 }

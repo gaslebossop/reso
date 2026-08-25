@@ -30,6 +30,12 @@
  * Lancer : `npm run bench`
  */
 
+// `player.ts` lit `__DEV__` pour taire ses traces en production. Metro le
+// definit, Node non : sans cette ligne le banc s'arrete a la premiere lecture
+// sur un `ReferenceError`, et c'est exactement ce qui l'avait rendu muet. Faux
+// et pas vrai : le banc mesure le chemin de production, pas ses journaux.
+;(globalThis as { __DEV__?: boolean }).__DEV__ = false;
+
 import { horloge, EPOCH } from './horloge';
 import {
   auditionner,

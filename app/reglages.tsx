@@ -912,13 +912,24 @@ function Bascule({
 }
 
 /** La rangee d'artistes. Deborde volontairement les marges : une rangee qui
- *  defile doit sortir du cadre, sinon rien ne dit qu'elle continue. */
+ *  defile doit sortir du cadre, sinon rien ne dit qu'elle continue.
+ *
+ *  Chaque portrait ouvre la fiche de l'artiste, comme partout ailleurs dans
+ *  l'app : ce sont les ancres du gout, et « c'est qui, lui ? » est la premiere
+ *  question qu'on se pose devant une ancre qu'on ne reconnait plus. */
 function Portraits({ gens }: { gens: Artist[] }) {
+  const router = useRouter();
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.defile}>
       <View style={styles.rangee}>
         {gens.map((a) => (
-          <View key={a.id} style={styles.colonne}>
+          <Pressable
+            key={a.id}
+            style={({ pressed }) => [styles.colonne, pressed && styles.colonnePressee]}
+            onPress={() => router.push(`/artiste/${a.id}`)}
+            accessibilityRole="button"
+            accessibilityLabel={`Voir la fiche de ${a.name}`}
+          >
             <Image
               source={{ uri: a.picture }}
               style={styles.portrait}
@@ -930,7 +941,7 @@ function Portraits({ gens }: { gens: Artist[] }) {
             <Text style={styles.portraitNom} numberOfLines={1}>
               {a.name}
             </Text>
-          </View>
+          </Pressable>
         ))}
       </View>
     </ScrollView>
@@ -1090,6 +1101,7 @@ const styles = StyleSheet.create({
   defile: { marginHorizontal: -MARGE, paddingHorizontal: MARGE },
   rangee: { flexDirection: 'row', gap: space.sm },
   colonne: { width: 76, gap: space.xs },
+  colonnePressee: { opacity: 0.55 },
   portrait: { width: 76, height: 76, borderRadius: radius.md, backgroundColor: color.bgElevated },
   portraitNom: { ...type.label, fontSize: 13, lineHeight: 18, color: color.textMuted },
 

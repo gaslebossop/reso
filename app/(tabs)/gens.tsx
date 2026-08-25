@@ -15,7 +15,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { prisme } from '../../src/api/client';
-import type { Gen, ProfilSocial } from '../../src/api/types';
+import { fansLisibles } from '../../src/api/titre';
+import type { Artist, Gen, ProfilSocial } from '../../src/api/types';
 import { AccountGate } from '../../src/components/AccountGate';
 import { Visage } from '../../src/components/Visage';
 import { IconeChevron, IconeCloche, IconePartage } from '../../src/components/Icones';
@@ -80,6 +81,20 @@ import { chiffres, color, radius, space, type } from '../../src/theme/tokens';
  * Trois cents millisecondes de silence, deux caracteres minimum. Chercher
  * lettre par lettre contre un serveur distant, c'est tirer un aller-retour par
  * frappe — et voir la liste clignoter sous le pouce.
+ *
+ * ## Un seul champ, deux natures de reponse
+ *
+ * On tape un nom, et on ne sait pas toujours si c'est celui d'un ami ou d'un
+ * artiste — « Angele » est les deux. Deux champs auraient oblige a trancher
+ * avant de chercher ; un seul champ interroge les deux cotes en parallele et
+ * rend deux listes titrees. Les profils d'abord : c'est l'onglet « Les gens »,
+ * et quelqu'un qui cherche un @ ne doit pas defiler sous une discographie.
+ *
+ * Les deux appels sont independants : un cote qui echoue laisse l'autre
+ * s'afficher, et le message d'erreur n'apparait que si les deux sont muets.
+ * La recherche d'artistes part **allegee** — sans titres phares ni badge —
+ * parce que rien de tout cela n'est montre ici, et que l'enrichissement se
+ * paie en appels sortants a chaque pause de frappe.
  */
 
 /** Le silence qui declenche la recherche. */
@@ -97,6 +112,8 @@ export default function GensScreen() {
 
   const [texte, setTexte] = useState('');
   const [gens, setGens] = useState<Gen[] | null>(null);
+  /** Les artistes du meme mot, cherches en parallele des profils. */
+  const [artistes, setArtistes] = useState<Artist[] | null>(null);
   const [occupe, setOccupe] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const [visible, setVisible] = useState<boolean | null>(null);
@@ -104,6 +121,15 @@ export default function GensScreen() {
   const [moi, setMoi] = useState<ProfilSocial | null>(null);
   /** Ceux que tu suis, en visages. */
   const [suivis, setSuivis] = useState<Gen[] | null>(null);
+  /**
+   * Les artistes que tu suis.
+   *
+   * Ils font partie du meme abonnement — meme geste, meme bouton — et la
+   * rangee les montre a la suite des visages plutot que dans une deuxieme
+   * file : « tout voir » mene a une seule liste, et deux rangees ici
+   * promettraient deux ecrans.
+   */
+  const [artistesSuivis, setArtistesSuivis] = useState<Artist[] | null>(null);
 
   // Le minuteur de pause vit dans une reference : il survit aux rendus, et
   // un caractere tape vite annule la recherche du caractere d'avant.
@@ -115,22 +141,35 @@ export default function GensScreen() {
     const mien = ++jeton.current;
     if (propre.length < MINIMUM) {
       setGens(null);
+      setArtistes(null);
       setErreur(null);
       setOccupe(false);
       return;
     }
     setOccupe(true);
-    try {
-      const r = await prisme.rechercheGens(propre);
-      if (mien !== jeton.current) return;
-      setGens(r.gens);
-      setErreur(null);
-    } catch (e) {
-      if (mien !== jeton.current) return;
-      setErreur(e instanceof Error ? e.message : 'Recherche impossible');
-    } finally {
-      if (mien === jeton.current) setOccupe(false);
-    }
+    // De front, et chacun avec son propre filet : le repertoire social et le
+    // catalogue Deezer n'ont aucune raison de tomber ensemble, et perdre les
+    // artistes parce qu'une requete SQL a echoue viderait l'ecran pour rien.
+    const [profils, trouves] = await Promise.all([
+      prisme
+        .rechercheGens(propre)
+        .then((r) => ({ gens: r.gens, erreur: null as string | null }))
+        .catch((e) => ({
+          gens: null,
+          erreur: e instanceof Error ? e.message : 'Recherche impossible',
+        })),
+      prisme
+        .searchArtists(propre, true)
+        .then((r) => r.artists)
+        .catch(() => [] as Artist[]),
+    ]);
+    if (mien !== jeton.current) return;
+    setGens(profils.gens);
+    setArtistes(trouves);
+    // Une moitie qui a repondu suffit a faire un ecran utile : l'erreur ne
+    // s'affiche que quand il n'y a vraiment rien a montrer.
+    setErreur(profils.erreur && trouves.length === 0 ? profils.erreur : null);
+    setOccupe(false);
   }, []);
 
   useEffect(() => {
@@ -168,11 +207,14 @@ export default function GensScreen() {
           if (!vivant) return;
           const [profil, abonnements] = await Promise.all([
             prisme.profilPublic(identite.user_id),
-            prisme.gensDuProfil(identite.user_id, 'abonnements').catch(() => ({ gens: [] })),
+            prisme
+              .gensDuProfil(identite.user_id, 'abonnements')
+              .catch(() => ({ gens: [] as Gen[], artistes: [] as Artist[] })),
           ]);
           if (!vivant) return;
           setMoi(profil);
           setSuivis(abonnements.gens);
+          setArtistesSuivis(abonnements.artistes ?? []);
         } catch {
           // Sans carte de visite, l'ecran reste utilisable : la recherche, la
           // cloche et la bascule ne dependent pas d'elle.
@@ -201,6 +243,14 @@ export default function GensScreen() {
     (id: string) => {
       vibrer.choix();
       router.push(`/gens/${encodeURIComponent(id)}`);
+    },
+    [router],
+  );
+
+  const ouvrirArtiste = useCallback(
+    (id: number) => {
+      vibrer.choix();
+      router.push(`/artiste/${id}`);
     },
     [router],
   );
@@ -317,56 +367,118 @@ export default function GensScreen() {
       {/* -- Le repertoire -------------------------------------------------- */}
       <TextInput
         style={styles.champ}
-        placeholder="Chercher un nom ou un @…"
+        placeholder="Chercher un profil, un @ ou un artiste…"
         placeholderTextColor={color.textFaint}
         value={texte}
         onChangeText={setTexte}
         autoCorrect={false}
         autoCapitalize="none"
         returnKeyType="search"
-        accessibilityLabel="Rechercher un profil"
+        accessibilityLabel="Rechercher un profil ou un artiste"
       />
 
       {occupe ? <ActivityIndicator color={color.accent} style={styles.attente} /> : null}
       {erreur ? <Text style={styles.erreur}>{erreur}</Text> : null}
 
-      {!erreur && enRecherche && gens !== null && gens.length === 0 && !occupe ? (
+      {!erreur &&
+      enRecherche &&
+      !occupe &&
+      gens !== null &&
+      gens.length === 0 &&
+      artistes !== null &&
+      artistes.length === 0 ? (
         <Text style={styles.vide}>
-          Personne de ce nom. Les profils cachés n'apparaissent pas — c'est le but.
+          Ni profil ni artiste de ce nom. Les profils cachés n'apparaissent pas — c'est le but.
         </Text>
       ) : null}
 
+      {/* Les profils d'abord : c'est l'onglet « Les gens », et quelqu'un qui
+          cherche un @ ne doit pas defiler sous une liste d'artistes. Les
+          titres de section ne s'affichent qu'en recherche — hors recherche il
+          n'y a qu'une liste, et la nommer serait du bruit. */}
       {enRecherche && gens !== null && gens.length > 0 ? (
-        <View style={styles.liste}>
-          {gens.map((g) => (
-            <Pressable
-              key={g.user_id}
-              style={({ pressed }) => [styles.rang, pressed && styles.pale]}
-              onPress={() => ouvrir(g.user_id)}
-              accessibilityRole="button"
-              accessibilityLabel={`Voir le profil de ${g.nom}`}
-            >
-              <Visage uri={g.avatar} taille={48} />
-              <View style={styles.rangTexte}>
-                <Text style={styles.rangNom} numberOfLines={1}>
-                  {g.nom || 'Sans nom'}
-                </Text>
-                <Text style={styles.sous} numberOfLines={1}>
-                  {[g.handle ? `@${g.handle}` : null, `${g.gardes} gardé${g.gardes > 1 ? 's' : ''}`]
-                    .filter(Boolean)
-                    .join(' · ')}
-                </Text>
-              </View>
-              <IconeChevron couleur={color.textFaint} />
-            </Pressable>
-          ))}
+        <View style={styles.resultats}>
+          <Text style={styles.sectionTitre}>Profils</Text>
+          <View style={styles.liste}>
+            {gens.map((g) => (
+              <Pressable
+                key={g.user_id}
+                style={({ pressed }) => [styles.rang, pressed && styles.pale]}
+                onPress={() => ouvrir(g.user_id)}
+                accessibilityRole="button"
+                accessibilityLabel={`Voir le profil de ${g.nom}`}
+              >
+                <Visage uri={g.avatar} taille={48} />
+                <View style={styles.rangTexte}>
+                  <Text style={styles.rangNom} numberOfLines={1}>
+                    {g.nom || 'Sans nom'}
+                  </Text>
+                  <Text style={styles.sous} numberOfLines={1}>
+                    {[g.handle ? `@${g.handle}` : null, `${g.gardes} gardé${g.gardes > 1 ? 's' : ''}`]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </Text>
+                </View>
+                <IconeChevron couleur={color.textFaint} />
+              </Pressable>
+            ))}
+          </View>
         </View>
       ) : null}
 
-      {/* Les visages de ceux qu'on suit. Ils ne s'affichent pas pendant une
-          recherche : deux listes de gens l'une sous l'autre demanderaient de
-          lire le titre pour savoir laquelle on regarde. */}
-      {!enRecherche && suivis !== null && suivis.length > 0 ? (
+      {/* Les artistes. Portrait carre a coins arrondis, la ou les profils ont
+          un visage rond : la forme dit la nature de la ligne avant que le
+          titre de section soit lu, et c'est ce qui permet aux deux listes de
+          se suivre sans se confondre. */}
+      {enRecherche && artistes !== null && artistes.length > 0 ? (
+        <View style={styles.resultats}>
+          <Text style={styles.sectionTitre}>Artistes</Text>
+          <View style={styles.liste}>
+            {artistes.map((a) => {
+              const abonnes = fansLisibles(a.fans);
+              return (
+                <Pressable
+                  key={a.id}
+                  style={({ pressed }) => [styles.rang, pressed && styles.pale]}
+                  onPress={() => ouvrirArtiste(a.id)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Voir la fiche de ${a.name}`}
+                >
+                  <Image
+                    source={{ uri: a.picture }}
+                    style={styles.portrait}
+                    contentFit="cover"
+                    transition={160}
+                    cachePolicy="memory-disk"
+                    recyclingKey={String(a.id)}
+                  />
+                  <View style={styles.rangTexte}>
+                    <Text style={styles.rangNom} numberOfLines={1}>
+                      {a.name}
+                    </Text>
+                    {abonnes ? (
+                      <Text style={styles.sous} numberOfLines={1}>
+                        {abonnes} sur Deezer
+                      </Text>
+                    ) : null}
+                  </View>
+                  <IconeChevron couleur={color.textFaint} />
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
+
+      {/* Les visages de ceux qu'on suit, puis les portraits des artistes.
+          Ils ne s'affichent pas pendant une recherche : deux listes de gens
+          l'une sous l'autre demanderaient de lire le titre pour savoir
+          laquelle on regarde.
+
+          Rond pour un profil, carre a coins arrondis pour un artiste : la
+          forme dit la nature avant qu'on lise le nom, et c'est ce qui permet
+          aux deux de se suivre dans la meme file. */}
+      {!enRecherche && (suivis?.length ?? 0) + (artistesSuivis?.length ?? 0) > 0 ? (
         <View style={styles.section}>
           <View style={styles.sectionEntete}>
             <Text style={styles.sectionTitre}>Tu suis</Text>
@@ -388,7 +500,7 @@ export default function GensScreen() {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.rangee}
           >
-            {suivis.slice(0, VISAGES).map((g) => (
+            {(suivis ?? []).slice(0, VISAGES).map((g) => (
               <Pressable
                 key={g.user_id}
                 style={({ pressed }) => [styles.tete, pressed && styles.pale]}
@@ -402,13 +514,38 @@ export default function GensScreen() {
                 </Text>
               </Pressable>
             ))}
+            {(artistesSuivis ?? []).slice(0, VISAGES).map((a) => (
+              <Pressable
+                key={`a${a.id}`}
+                style={({ pressed }) => [styles.tete, pressed && styles.pale]}
+                onPress={() => ouvrirArtiste(a.id)}
+                accessibilityRole="button"
+                accessibilityLabel={`Voir la fiche de ${a.name}`}
+              >
+                <Image
+                  source={{ uri: a.picture }}
+                  style={styles.tetePortrait}
+                  contentFit="cover"
+                  transition={160}
+                  cachePolicy="memory-disk"
+                  recyclingKey={String(a.id)}
+                />
+                <Text style={styles.tetePrenom} numberOfLines={1}>
+                  {a.name}
+                </Text>
+              </Pressable>
+            ))}
           </ScrollView>
         </View>
       ) : null}
 
-      {!enRecherche && suivis !== null && suivis.length === 0 ? (
+      {!enRecherche &&
+      suivis !== null &&
+      suivis.length === 0 &&
+      (artistesSuivis?.length ?? 0) === 0 ? (
         <Text style={styles.vide}>
-          Tu ne suis personne. Cherche un @ au-dessus, ou demande son profil à quelqu'un.
+          Tu ne suis personne. Cherche un @ ou un artiste au-dessus, ou demande son profil à
+          quelqu'un.
         </Text>
       ) : null}
 
@@ -527,7 +664,11 @@ const styles = StyleSheet.create({
   erreur: { ...type.body, fontSize: 15, lineHeight: 20, color: color.alert, marginTop: space.lg },
   vide: { ...type.body, fontSize: 15, lineHeight: 22, color: color.textMuted, marginTop: space.lg },
 
+  // Un bloc de resultats : son titre, puis ses lignes. La marge du haut est
+  // portee ici et non par la liste, sinon le titre collerait au champ.
+  resultats: { marginTop: space.lg },
   liste: { marginTop: space.sm },
+  portrait: { width: 48, height: 48, borderRadius: radius.sm, backgroundColor: color.bgElevated },
   rang: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -547,6 +688,7 @@ const styles = StyleSheet.create({
   // horizontal qui s'arrete pile au bord ne se voit pas defiler.
   rangee: { gap: space.md, paddingRight: space.lg },
   tete: { width: 56, alignItems: 'center', gap: space.xs },
+  tetePortrait: { width: 56, height: 56, borderRadius: radius.sm, backgroundColor: color.bgElevated },
   tetePrenom: { ...type.caption, fontSize: 13, lineHeight: 18, color: color.textFaint },
 
 

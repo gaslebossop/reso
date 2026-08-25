@@ -968,6 +968,136 @@ différemment :
 - `DELETE /blocked/{artistId}` **efface les événements** `block`. Là, on se
   dédit vraiment — voir plus haut.
 
+## Un abonnement n'est pas forcément quelqu'un
+
+On suit des gens et on suit des artistes, du même geste et depuis le même
+bouton. La liste derrière le compteur « abonnements » ne montrait pourtant que
+les gens : suivre un artiste ne laissait aucune trace à l'endroit même où l'on
+va chercher ce qu'on suit.
+
+`GET /social/profil/{ref}/gens?type=abonnements` rend donc **deux clés** —
+`gens` (les profils) et `artistes` (les fiches Deezer complètes). Côté
+`abonnes`, `artistes` est toujours vide mais **présent** : un artiste n'est pas
+un compte, il ne suit personne, et l'app n'a pas à distinguer l'absence du vide.
+
+Trois conséquences à ne pas défaire :
+
+- **`comptesSuivis` compte les artistes dans les abonnements**, pas dans les
+  abonnés. Le chiffre annonce la liste où il mène ; un compteur qui dit trois
+  au-dessus d'une liste de dix ferait douter de la liste, pas du compteur.
+- **Les fiches sont plafonnées à cinquante**, comme les gens. Chacune est un
+  appel Deezer — mis en cache quatorze jours, donc gratuit dès la deuxième
+  ouverture, mais la première ne doit pas devenir une attente.
+- **La forme distingue les deux natures avant le texte** : visage rond pour un
+  profil, portrait carré à coins arrondis pour un artiste. C'est ce qui permet
+  aux deux de se suivre dans la même liste, et c'est déjà l'idiome de la
+  recherche de l'onglet « Les gens ». Les titres de section (« Profils » /
+  « Artistes ») n'apparaissent que quand les deux natures sont là — nommer une
+  liste seule est du bruit.
+
+Le client tolère un moteur d'une version antérieure : `artistes` est facultatif
+et son absence vaut liste vide, donc l'écran retombe sur ce qu'il montrait
+avant.
+
+## Partager un son : ce qui compte, et ce qui ne compte pas
+
+**Ami = suivi réciproque**, calculé depuis `social_suivis`, jamais stocké. Ne
+pas créer de table d'amitié : elle ajouterait un troisième état à un graphe qui
+n'en a que deux, et il faudrait la tenir cohérente à chaque désabonnement. Les
+profils cachés n'y figurent pas — se retirer de la recherche, c'est aussi
+cesser d'être joignable.
+
+**`social_partages` est la seule chose écrite**, parce qu'un partage ne se
+déduit de rien. Les notifications, elles, restent **dérivées** : `partage_recu`
+et `partage_garde` sont des jointures, donc elles ne peuvent pas mentir.
+`added_at > created_at` sur la seconde est ce qui empêche la fausse bonne
+nouvelle — envoyer un son que l'autre avait déjà gardé n'annonce rien.
+
+Cinq choses à ne pas défaire :
+
+- **Le préfixe du lot se fait dans `Feed.next`, avant `markSeen`.** Le faire
+  dans la route laisserait les titres partagés hors de l'anti-répétition, et
+  ils reviendraient ensuite par le chemin normal. L'arithmétique du lot est
+  extraite dans `Feed.prefixer` — c'est la seule du chemin, et elle est testée.
+- **Une carte partagée n'entre jamais dans `serve_log`.** Cette table dit ce
+  que le modèle *croyait* en servant la carte ; il n'a rien cru ici, et y
+  écrire des zéros empoisonnerait le futur reclasseur.
+- **Un « passer » sur un son d'ami ne compte pas dans le goût** — il est
+  souvent social. **Bannir compte**, lui : ignorer le geste le plus explicite
+  de l'app ferait mentir le bouton. Le drapeau `from_share` vient de l'app, et
+  le serveur ne s'en sert que pour **supprimer** un événement, jamais pour en
+  créer un : `/feed/event` est le chemin le plus chaud, on n'y lit pas la base.
+  Un client modifié ne peut donc qu'abîmer son propre profil.
+- **La signature est la ligne de mention du cartel, pas un bandeau.** Un
+  bandeau au-dessus de la pochette rendrait les cartes partagées plus hautes
+  que les autres, et la pile changerait de forme à chaque fois que l'une passe.
+- **L'icône d'envoi lève `surBouton`**, comme le bouton « suivre ». Sans ça, un
+  appui un peu lent dessus ouvre la demande de bannissement au bout de 600 ms.
+
+**Trois titres par jour** (`Tuning.PartagesParJour`), tous destinataires
+confondus : le même son à quatre amis coûte un. Ce qui est rare, c'est le
+morceau qu'on juge digne d'être envoyé, pas le nombre de gens à qui on pense.
+Le dépassement rend **429, pas 403** — voir juste en dessous.
+
+### Le retour couvre les DEUX gestes positifs
+
+**Signalé sur appareil le 2026-08-25 :** un son envoyé, aimé par le
+destinataire, aucune notification. Le journal ne montrait rien, et pour cause —
+rien n'avait échoué.
+
+`partage_garde` se dérivait de `library_tracks` seule. Or **un « j'aime » ne
+range rien** : seul « je garde » entre en bibliothèque. La moitié du positif
+était donc invisible, et c'est la moitié la plus fréquente — aimer est le geste
+courant, garder est le geste rare.
+
+La faute était dans la spec, pas dans le code : « seulement le positif » avait
+été rétréci en « seulement le gardé » à l'écriture, sans que ça se voie.
+
+Le retour se dérive maintenant de **la même union que `Repo.communs`** — la
+bibliothèque ∪ les swipes `like`/`save` — ce qui était déjà le motif juste dans
+ce dépôt. Trois choses à ne pas défaire :
+
+- **Deux genres, pas un** (`partage_aime`, `partage_garde`) : garder et aimer
+  ne racontent pas la même rencontre, et c'est exactement pour ça que l'écran
+  des titres en commun a déjà été corrigé une fois.
+- **Une seule notification par envoi**, celle du geste le plus fort — aimé puis
+  gardé se raconte comme un gardé. D'où `GROUP BY p.id` et `bool_or(garde)`.
+  Sans ça, un même son produirait deux lignes et ferait croire à deux
+  événements.
+- **`g.at > p.created_at`** : envoyer un son que l'autre aimait *déjà* n'annonce
+  rien. Sans cette borne, chaque envoi d'un titre populaire produirait une
+  fausse bonne nouvelle immédiate.
+
+**Leçon transposable :** dans ce dépôt, « positif » veut dire `like` **ou**
+`save`. Toute lecture du goût qui n'interroge que `library_tracks` ne voit
+qu'un geste sur deux.
+
+### Un 403 ne veut pas dire « connecte-toi »
+
+Corrigé pendant ce chantier. `src/api/client.ts` transformait **tout** 403 en
+`AccountRequiredError`, en jetant le corps de la réponse. Seul le refus de
+`withAccount` joint une `auth_config` ; les autres 403 sont des règles métier
+dont la phrase est écrite pour être affichée. La feuille d'envoi aurait donc
+ouvert le portail de connexion à quelqu'un déjà connecté, en cachant le vrai
+motif. C'est la même faute que le 403 de Spotify, qui a coûté une journée.
+
+`AccountRequiredError` n'est levée que si `auth_config` est présente ; sinon
+c'est une `PrismeError` qui porte le message du serveur.
+
+**Réserve, non traitée :** on ne peut pas bloquer les envois de quelqu'un sans
+se désabonner de lui. Le plafond rend le harcèlement coûteux, pas impossible.
+
+## Le banc lisait `__DEV__`, que Node ne définit pas
+
+`player.ts` tait ses traces en production avec `if (!__DEV__) return`. Metro
+définit ce symbole, Node non : `npm run bench` s'arrêtait donc sur un
+`ReferenceError` dès la première lecture, sur les quatre réseaux. Le banc était
+**muet depuis ce commit-là**, et rien ne le disait — il échouait avant d'avoir
+mesuré quoi que ce soit.
+
+`bench/fil.ts` pose `globalThis.__DEV__ = false` avant tout. Faux et pas vrai :
+le banc mesure le chemin de production, pas ses journaux.
+
 ## Repartir de zéro
 
 Trois mémoires distinctes, et les effacer toutes n'est pas la même chose que

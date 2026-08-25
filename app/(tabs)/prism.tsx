@@ -11,6 +11,7 @@ import { IconeChevron, IconeReglages } from '../../src/components/Icones';
 import { duree, habitudes } from '../../src/state/portrait';
 import { resetSession } from '../../src/state/session';
 import { refreshAccount, useAccount } from '../../src/state/useAccount';
+import { vibrer } from '../../src/state/vibration';
 import { chiffres, color, radius, space, type } from '../../src/theme/tokens';
 
 /**
@@ -35,6 +36,11 @@ import { chiffres, color, radius, space, type } from '../../src/theme/tokens';
  *     lui donne sans cloisons, sans verdicts, sans pourcentages.
  *  3. **Le detail, en bas, pour qui veut** : les habitudes d'ecoute. 
  *     Consultable, pas impose.
+ *
+ * Les portraits mènent quelque part : un visage d'artiste qu'on ne peut pas
+ * toucher est une impasse, et c'est justement devant sa propre liste qu'on se
+ * demande « lui, c'est qui déjà ? ». Un appui ouvre sa fiche — ses titres,
+ * écoutables sur place, et qui le suit ici.
  *
  * Aucun pourcentage, aucun libelle de groupe ne survit sur cet ecran. Ce
  * n'est pas de la deco en moins : un chiffre ou une separation qu'on ne peut
@@ -221,25 +227,7 @@ export default function PrismScreen() {
           </Text>
           <View style={styles.grille}>
             {artistes.map((a) => (
-              <View key={a.id} style={[styles.colonne, { width: cote }]}>
-                <Image
-                  source={{ uri: a.picture }}
-                  style={[styles.portrait, { width: cote, height: cote }]}
-                  contentFit="cover"
-                  cachePolicy="memory-disk"
-                  transition={160}
-                  recyclingKey={String(a.id)}
-                  accessibilityLabel={a.name}
-                />
-                <Text
-                  style={styles.portraitNom}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.8}
-                >
-                  {a.name}
-                </Text>
-              </View>
+              <Tuile key={a.id} artiste={a} cote={cote} />
             ))}
           </View>
         </View>
@@ -262,25 +250,7 @@ export default function PrismScreen() {
           </Text>
           <View style={styles.grille}>
             {suivis.map((a) => (
-              <View key={a.id} style={[styles.colonne, { width: cote }]}>
-                <Image
-                  source={{ uri: a.picture }}
-                  style={[styles.portrait, { width: cote, height: cote }]}
-                  contentFit="cover"
-                  cachePolicy="memory-disk"
-                  transition={160}
-                  recyclingKey={String(a.id)}
-                  accessibilityLabel={a.name}
-                />
-                <Text
-                  style={styles.portraitNom}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.8}
-                >
-                  {a.name}
-                </Text>
-              </View>
+              <Tuile key={a.id} artiste={a} cote={cote} />
             ))}
           </View>
         </View>
@@ -297,6 +267,47 @@ export default function PrismScreen() {
         </View>
       ) : null}
     </ScrollView>
+  );
+}
+
+/**
+ * Un artiste dans la grille : son portrait, son nom, et sa fiche au bout.
+ *
+ * Le meme composant sert aux deux sections — celle que le Prisme a deduite et
+ * celle qu'on a choisie. Elles montrent la meme chose, un artiste, et rien ne
+ * justifierait qu'un appui ne fasse pas la meme chose dans l'une et dans
+ * l'autre.
+ */
+function Tuile({
+  artiste,
+  cote,
+}: {
+  artiste: { id: number; name: string; picture: string };
+  cote: number;
+}) {
+  const router = useRouter();
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.colonne, { width: cote }, pressed && styles.tuilePressee]}
+      onPress={() => {
+        vibrer.choix();
+        router.push(`/artiste/${artiste.id}`);
+      }}
+      accessibilityRole="button"
+      accessibilityLabel={`Voir la fiche de ${artiste.name}`}
+    >
+      <Image
+        source={{ uri: artiste.picture }}
+        style={[styles.portrait, { width: cote, height: cote }]}
+        contentFit="cover"
+        cachePolicy="memory-disk"
+        transition={160}
+        recyclingKey={String(artiste.id)}
+      />
+      <Text style={styles.portraitNom} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+        {artiste.name}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -413,6 +424,7 @@ const styles = StyleSheet.create({
     marginTop: space.md,
   },
   colonne: { gap: space.xs },
+  tuilePressee: { opacity: 0.55 },
   portrait: { borderRadius: radius.md, backgroundColor: color.bgElevated },
   portraitNom: { ...type.label, fontSize: 13, lineHeight: 18, color: color.text },
 

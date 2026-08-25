@@ -126,9 +126,25 @@ async function call<T>(path: string, init?: RequestInit, opts?: CallOptions): Pr
     if (res.status === 403) {
       // Le moteur joint sa configuration d'authentification au refus : l'app
       // peut donc proposer la connexion sans avoir a la connaitre d'avance.
-      const body = (await res.json().catch(() => null)) as { auth_config?: AuthConfig } | null;
-      if (body?.auth_config) authConfig = body.auth_config;
-      throw new AccountRequiredError(body?.auth_config ?? null);
+      const body = (await res.json().catch(() => null)) as
+        | { auth_config?: AuthConfig; message?: string; error?: string }
+        | null;
+      if (body?.auth_config) {
+        authConfig = body.auth_config;
+        throw new AccountRequiredError(body.auth_config);
+      }
+      // **Un 403 ne veut pas dire « connecte-toi ».** Seul le refus de
+      // `withAccount` joint une `auth_config` ; les autres sont des regles
+      // metier — « on n'envoie qu'a un ami », par exemple — et leur phrase est
+      // ecrite pour etre affichee. Les traiter tous comme un defaut de compte
+      // ouvrait le portail de connexion a quelqu'un deja connecte, en cachant
+      // le vrai motif. C'est la meme faute que le 403 de Spotify, qui a coute
+      // une journee : un 403 dit « non », il ne dit pas pourquoi.
+      throw new PrismeError(
+        body?.message ?? body?.error ?? `${methode} ${path} a repondu 403`,
+        403,
+        body?.error,
+      );
     }
 
     if (!res.ok) {
@@ -203,8 +219,19 @@ export const prisme = {
   /** Grille d'artistes pour l'onboarding. */
   onboardingArtists: () => call<{ artists: Artist[] }>('/onboarding/artists'),
 
-  searchArtists: (q: string) =>
-    call<{ artists: Artist[] }>(`/search/artists?q=${encodeURIComponent(q)}`),
+  /**
+   * Chercher un artiste par son nom.
+   *
+   * `leger` demande au moteur de sauter l'enrichissement par titres phares :
+   * il coute jusqu'a huit appels sortants et ne sert qu'a departager des
+   * homonymes dans l'ecran d'ajout. La recherche de l'onglet « Les gens »
+   * n'affiche ni titres ni badge — elle le demande allege, sinon chaque pause
+   * de frappe paierait un enrichissement que personne ne lit.
+   */
+  searchArtists: (q: string, leger = false) =>
+    call<{ artists: Artist[] }>(
+      `/search/artists?q=${encodeURIComponent(q)}${leger ? '&leger=1' : ''}`,
+    ),
 
   /**
    * Les voisins d'un artiste : « si tu aimes lui, alors eux aussi ».
@@ -347,7 +374,17 @@ export const prisme = {
    * de distinguer un rejet violent d'un « bien mais suivant ». Toujours le
    * renseigner honnetement.
    */
-  event: (p: { track: Track; action: SwipeAction; msPlayed: number; previewMs: number }) =>
+  event: (p: {
+    track: Track;
+    action: SwipeAction;
+    msPlayed: number;
+    previewMs: number;
+    /** La carte venait d'un ami. Le moteur s'en sert **uniquement** pour ne
+     *  pas compter un « passer » : un passage sur un son qu'on vous envoie est
+     *  souvent social, et le compter pousserait le profil à l'opposé pour une
+     *  raison qui n'en est pas une. Les trois autres verdicts comptent. */
+    fromShare?: boolean;
+  }) =>
     post<EventResult>('/feed/event', {
       track_id: p.track.id,
       artist_id: p.track.artist.id,
@@ -355,6 +392,7 @@ export const prisme = {
       action: p.action,
       ms_played: Math.round(p.msPlayed),
       preview_ms: Math.round(p.previewMs),
+      from_share: p.fromShare === true,
     }),
 
   /** Ecran « Ton Prisme ». Exige un compte du reseau G. */
@@ -493,9 +531,35 @@ export const prisme = {
   notifsVues: () =>
     call<{ nouvelles: number }>('/social/notifs/vues', { method: 'PUT' }),
 
-  /** Les abonnes (`abonnes`) ou les abonnements (`abonnements`) d'un profil. */
+  /** Les amis — ceux qu'on suit et qui nous suivent — et ce qu'il reste
+   *  d'envois aujourd'hui.
+   *
+   *  Les deux dans le même appel : la feuille d'envoi affiche le compteur dès
+   *  son ouverture, et un second aller-retour pour un seul entier serait payé
+   *  à chaque appui sur l'icône. Le compteur vient du serveur — le calculer
+   *  ici le ferait diverger dès qu'on envoie depuis un deuxième appareil. */
+  amis: () => call<{ amis: Gen[]; restants: number }>('/social/amis'),
+
+  /** Envoyer un titre à un ami. `aQui` est un identifiant ou un @handle.
+   *
+   *  403 si ce n'est pas un ami, ou si les trois sons du jour sont partis. Le
+   *  message du serveur est écrit pour être affiché tel quel. */
+  partager: (trackId: number, aQui: string) =>
+    call<{ envoye: boolean; restants: number }>('/social/partager', {
+      method: 'POST',
+      body: JSON.stringify({ track_id: trackId, a: aQui }),
+    }),
+
+  /** Les abonnes (`abonnes`) ou les abonnements (`abonnements`) d'un profil.
+   *
+   *  Un abonnement n'est pas forcement quelqu'un : on suit des gens et on suit
+   *  des artistes, du meme geste. `artistes` porte donc les fiches suivies —
+   *  toujours vide cote `abonnes`, ou la question ne se pose pas.
+   *
+   *  Facultatif : un moteur anterieur ne rend que `gens`, et l'ecran doit
+   *  alors afficher la liste d'avant plutot qu'une erreur. */
   gensDuProfil: (ref: string, type: 'abonnes' | 'abonnements') =>
-    call<{ gens: Gen[] }>(
+    call<{ gens: Gen[]; artistes?: Artist[] }>(
       `/social/profil/${encodeURIComponent(ref)}/gens?type=${type}`,
     ),
 };

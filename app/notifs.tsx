@@ -6,7 +6,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { prisme } from '../src/api/client';
 import type { Notif } from '../src/api/types';
-import { IconeCoeur, IconeGens, IconeRetour } from '../src/components/Icones';
+import {
+  IconeCoeur,
+  IconeEnvoyer,
+  IconeGarder,
+  IconeGens,
+  IconeRetour,
+} from '../src/components/Icones';
 import { Visage } from '../src/components/Visage';
 import { poser, toutLu } from '../src/state/notifs';
 import { vibrer } from '../src/state/vibration';
@@ -15,14 +21,24 @@ import { color, radius, space, type } from '../src/theme/tokens';
 /**
  * Ce qui s'est passe pendant que tu n'etais pas la.
  *
- * ## Deux genres, et pas un de plus
+ * ## Quatre genres, et pas un de plus
  *
- * Un **nouvel abonne**, et un **titre qu'on t'a repris**. Ce sont les deux
- * seuls faits que la base porte deja avec une date ; tout le reste — « untel a
- * ecoute », « ton profil a ete vu N fois » — serait une notification fabriquee
- * pour donner l'impression qu'il se passe quelque chose. Une liste courte et
- * vraie vaut mieux qu'une liste longue et decorative : c'est la difference
- * entre une page qu'on ouvre et une page qu'on apprend a ignorer.
+ * Un **nouvel abonne**, un **titre qu'on t'a repris**, un **son qu'un ami
+ * t'envoie**, et un **son que tu as envoye et que l'autre a aime ou garde**.
+ * Ce sont les seuls faits que la base porte deja avec une date ; tout le reste —
+ * « untel a ecoute », « ton profil a ete vu N fois » — serait une notification
+ * fabriquee pour donner l'impression qu'il se passe quelque chose. Une liste
+ * courte et vraie vaut mieux qu'une liste longue et decorative : c'est la
+ * difference entre une page qu'on ouvre et une page qu'on apprend a ignorer.
+ *
+ * **Il n'y a pas de mauvaise nouvelle.** Un son qu'on t'a envoye et que tu as
+ * passe ne remonte jamais a l'expediteur : dire a quelqu'un qu'on a zappe son
+ * morceau est une petite cruaute gratuite, et c'est exactement ce qui fait
+ * arreter d'envoyer.
+ *
+ * **Un genre inconnu n'est pas affiche**, il est ignore : un moteur plus
+ * recent que l'app en enverrait un qu'elle ne sait pas ecrire, et une ligne
+ * vide vaut mieux qu'un ecran vide.
  *
  * ## Le titre repris est la vraie nouvelle
  *
@@ -132,8 +148,8 @@ export default function Notifications() {
           <Text style={styles.erreur}>{erreur}</Text>
         ) : notifs!.length === 0 ? (
           <Text style={styles.vide}>
-            Rien pour l'instant. Ça se remplira quand quelqu'un te suivra, ou gardera un titre que
-            tu gardes déjà.
+            Rien pour l'instant. Ça se remplira quand quelqu'un te suivra, t'enverra un son, ou
+            gardera un titre que tu gardes déjà.
           </Text>
         ) : (
           <View style={styles.liste}>
@@ -174,42 +190,98 @@ function Ligne({
   onPress: () => void;
 }) {
   const nom = notif.gen.nom || `@${notif.gen.handle}` || 'Quelqu’un';
-  const estMatch = notif.genre === 'match';
+  const titre = notif.track?.title;
+
+  /**
+   * Ce que cette ligne dit, et de quoi elle a l'air.
+   *
+   * Une table plutot que des ternaires en cascade : quatre genres imbriques
+   * dans le JSX rendraient chaque ajout illisible, et c'est deja ce que la
+   * version a deux genres commençait à faire.
+   *
+   * `oeuvre` est le titre nommé dans la phrase. Il est absent de
+   * « a gardé le son que tu lui as envoyé » : ce qui compte y est que la
+   * personne ait gardé, et la pochette à droite dit déjà lequel.
+   */
+  const dit = ((): {
+    verbe: string;
+    oeuvre?: string;
+    sceau: object;
+    icone: React.ReactNode;
+    pochette: boolean;
+  } | null => {
+    switch (notif.genre) {
+      case 'abonne':
+        return {
+          verbe: ' te suit',
+          sceau: styles.sceauAbonne,
+          icone: <IconeGens actif couleur={color.save} taille={12} />,
+          pochette: false,
+        };
+      case 'match':
+        return {
+          verbe: ' garde aussi ',
+          oeuvre: titre,
+          sceau: styles.sceauMatch,
+          icone: <IconeCoeur actif couleur={color.accent} taille={12} />,
+          pochette: true,
+        };
+      case 'partage_recu':
+        return {
+          verbe: ' t’a envoyé ',
+          oeuvre: titre,
+          sceau: styles.sceauEnvoi,
+          icone: <IconeEnvoyer couleur={color.accent} taille={12} />,
+          pochette: true,
+        };
+      // Deux genres et pas un, parce que garder et aimer ne racontent pas la
+      // meme rencontre. Le moteur n'en envoie qu'un seul par son — celui du
+      // geste le plus fort.
+      case 'partage_aime':
+        return {
+          verbe: ' a aimé le son que tu lui as envoyé',
+          sceau: styles.sceauMatch,
+          icone: <IconeCoeur actif couleur={color.accent} taille={12} />,
+          pochette: true,
+        };
+      case 'partage_garde':
+        return {
+          verbe: ' a gardé le son que tu lui as envoyé',
+          sceau: styles.sceauGarde,
+          icone: <IconeGarder couleur={color.save} taille={12} />,
+          pochette: true,
+        };
+      default:
+        return null;
+    }
+  })();
+
+  if (!dit) return null;
 
   return (
     <Pressable
       style={({ pressed }) => [styles.rang, pressed && styles.rangPresse]}
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={
-        estMatch ? `${nom} garde aussi ${notif.track?.title ?? 'un titre'}` : `${nom} te suit`
-      }
+      accessibilityLabel={`${nom}${dit.verbe}${dit.oeuvre ?? ''}`}
     >
       <View>
         <Visage uri={notif.gen.avatar} taille={48} />
         {/* Le pictogramme du genre, pose sur le bord du visage : il dit de quoi
             il s'agit avant qu'on lise la phrase. */}
-        <View style={[styles.sceau, estMatch ? styles.sceauMatch : styles.sceauAbonne]}>
-          {estMatch ? (
-            <IconeCoeur actif couleur={color.accent} taille={12} />
-          ) : (
-            <IconeGens actif couleur={color.save} taille={12} />
-          )}
-        </View>
+        <View style={[styles.sceau, dit.sceau]}>{dit.icone}</View>
       </View>
 
       <View style={styles.rangTexte}>
         <Text style={styles.phrase} numberOfLines={2}>
           <Text style={styles.nom}>{nom}</Text>
-          {estMatch ? ' garde aussi ' : ' te suit'}
-          {estMatch && notif.track ? (
-            <Text style={styles.oeuvre}>{notif.track.title}</Text>
-          ) : null}
+          {dit.verbe}
+          {dit.oeuvre ? <Text style={styles.oeuvre}>{dit.oeuvre}</Text> : null}
         </Text>
         <Text style={styles.quand}>{ilYA(notif.at)}</Text>
       </View>
 
-      {estMatch && notif.track ? (
+      {dit.pochette && notif.track ? (
         <Image
           source={{ uri: notif.track.cover }}
           style={styles.pochette}
@@ -272,6 +344,10 @@ const styles = StyleSheet.create({
   },
   sceauMatch: { backgroundColor: color.accentDim },
   sceauAbonne: { backgroundColor: color.saveDim },
+  sceauEnvoi: { backgroundColor: color.accentDim },
+  // Le vert de « je garde », comme la barre du fil : le geste fort a sa
+  // couleur partout ailleurs, il l'a ici aussi.
+  sceauGarde: { backgroundColor: color.saveDim },
 
   rangTexte: { flex: 1, gap: 2 },
   phrase: { ...type.body, fontSize: 15, lineHeight: 21, color: color.textMuted },

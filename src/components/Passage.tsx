@@ -28,7 +28,8 @@ import { scheduleOnRN } from 'react-native-worklets';
 import { ligneInterpretes, separerTitre } from '../api/titre';
 import type { Card } from '../api/types';
 import { color, motion, radius, space, type } from '../theme/tokens';
-import { IconeCoche, IconeCoeur, IconeCroix, IconeGarder, IconePlus } from './Icones';
+import { IconeCoche, IconeCoeur, IconeCroix, IconeEnvoyer, IconeGarder, IconePlus } from './Icones';
+import { Visage } from './Visage';
 import { vibrer } from '../state/vibration';
 
 export type Verdict = 'like' | 'skip' | 'save';
@@ -209,6 +210,14 @@ type Props = {
    * bonne reponse et pas un raccourci.
    */
   onSuivre: (on: boolean) => void;
+  /**
+   * Ouvrir la feuille d'envoi pour ce titre.
+   *
+   * Absent = pas d'icone. L'ecran ne la donne qu'a la carte du dessus : une
+   * icone tapable sur une carte qu'on ne voit pas est un piege, et la pile en
+   * porte trois.
+   */
+  onEnvoyer?: () => void;
 };
 
 function PassageImpl({
@@ -225,6 +234,7 @@ function PassageImpl({
   onDemandeBannir,
   suivi,
   onSuivre,
+  onEnvoyer,
 }: Props) {
   const { width, height } = useWindowDimensions();
   const reduced = useReducedMotion();
@@ -537,20 +547,63 @@ function PassageImpl({
           />
           <View style={styles.cartelVoile} />
           <Animated.View style={[styles.texte, cadre.compact && styles.texteCompact, cartelStyle]}>
-            <Text style={[styles.mention, mentionTon[ton]]} numberOfLines={1}>
-              {card.reason}
-            </Text>
-            <Text
-              style={[
-                styles.titre,
-                { fontSize: tailleTitre, lineHeight: Math.round(tailleTitre * 1.18) },
-              ]}
-              numberOfLines={2}
-              adjustsFontSizeToFit
-              minimumFontScale={0.85}
-            >
-              {titre}
-            </Text>
+            {/* La signature prend la place de la mention — le slot qui existe
+                deja, et dont le role est exactement « pourquoi cette carte est
+                la ». Un bandeau au-dessus de la pochette aurait rendu les
+                cartes partagees plus hautes que les autres, et la pile aurait
+                change de forme a chaque fois que l'une passe. */}
+            {card.envoye_par ? (
+              <View style={styles.signature}>
+                <Visage uri={card.envoye_par.avatar} taille={18} />
+                <Text style={[styles.mention, styles.mentionPlate, mentionTon[ton]]} numberOfLines={1}>
+                  {`${card.envoye_par.nom || `@${card.envoye_par.handle}`} te l’envoie`}
+                </Text>
+              </View>
+            ) : (
+              <Text style={[styles.mention, mentionTon[ton]]} numberOfLines={1}>
+                {card.reason}
+              </Text>
+            )}
+            {/* Le titre, et l'envoi a sa droite. `flexShrink` sur le seul
+                texte : c'est le titre qui s'abrege quand il est long, jamais
+                l'icone qui sort de la carte — meme regle que le bouton
+                « suivre » sur la ligne du dessous. */}
+            <View style={styles.ligneTitre}>
+              <Text
+                style={[
+                  styles.titre,
+                  styles.titreFlex,
+                  { fontSize: tailleTitre, lineHeight: Math.round(tailleTitre * 1.18) },
+                ]}
+                numberOfLines={2}
+                adjustsFontSizeToFit
+                minimumFontScale={0.85}
+              >
+                {titre}
+              </Text>
+              {/* Pas d'icone sur une carte qu'on vient de recevoir : on ne
+                  fait pas suivre un son avant de l'avoir juge soi-meme. */}
+              {onEnvoyer && !card.envoye_par ? (
+                <Pressable
+                  onPress={() => {
+                    vibrer.action();
+                    onEnvoyer();
+                  }}
+                  /* Le meme drapeau que « suivre », et pour la meme raison :
+                     sans lui, un appui un peu lent ici ouvre la demande de
+                     bannissement au bout de 600 ms. */
+                  onPressIn={() => surBouton.set(1)}
+                  onPressOut={() => surBouton.set(0)}
+                  disabled={!active}
+                  hitSlop={12}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Envoyer ${titre} à un ami`}
+                  style={({ pressed }) => [styles.envoyer, pressed && { opacity: 0.6 }]}
+                >
+                  <IconeEnvoyer couleur={color.textMuted} taille={cadre.compact ? 18 : 20} />
+                </Pressable>
+              ) : null}
+            </View>
             {/* Le nom, puis le bouton — et surtout pas l'inverse. Le bouton
                 pose avant volerait la premiere chose lue de la ligne, qui est
                 l'artiste. `flexShrink` sur le texte seul : c'est le nom qui
@@ -784,6 +837,12 @@ const styles = StyleSheet.create({
   // En mode compact (scenes basses), chaque pixel de marge vole du texte.
   texteCompact: { paddingHorizontal: space.md, gap: space.xs / 2 },
   mention: { marginBottom: space.xs },
+  // La signature porte deja la marge du bas : sans ca, elle serait doublee.
+  mentionPlate: { marginBottom: 0, flexShrink: 1 },
+  signature: { flexDirection: 'row', alignItems: 'center', gap: space.xs, marginBottom: space.xs },
+  ligneTitre: { flexDirection: 'row', alignItems: 'flex-start', gap: space.sm },
+  titreFlex: { flexShrink: 1 },
+  envoyer: { paddingTop: 2 },
   // La taille du titre est posee par le rendu : elle derive du cote reel de
   // la pochette, pas du modele de l'appareil.
   titre: { fontWeight: '700', color: color.text, letterSpacing: -0.5 },
