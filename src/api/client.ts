@@ -2,8 +2,8 @@ import type { AuthConfig } from '../auth/gnetwork';
 import { accessToken } from '../auth/gnetwork';
 import { getDeviceId } from '../state/session';
 import type {
-  Ami, Artist, Card, EventResult, FicheArtiste, Gen, GesteHistorique, Me, Notifs, Prefs, Prism,
-  ProfilSocial, Stats, SwipeAction, Track,
+  Ami, Artist, Card, EventResult, FicheArtiste, Gen, GesteHistorique, Me, MixInvite, MixMatch,
+  MixRoomResume, Notifs, Prefs, Prism, ProfilSocial, Stats, SwipeAction, Track,
 } from './types';
 
 /**
@@ -565,4 +565,66 @@ export const prisme = {
     call<{ gens: Gen[]; artistes?: Artist[] }>(
       `/social/profil/${encodeURIComponent(ref)}/gens?type=${type}`,
     ),
+
+  // -- Le mix a deux -----------------------------------------------------
+
+  /** Inviter un ami a mixer les gouts. Meme regle que l'envoi d'un son : ca
+   *  n'existe qu'entre amis (suivi mutuel), et le message d'erreur du moteur
+   *  est deja ecrit pour etre affiche tel quel.
+   *
+   *  La route est idempotente et resout les croisements toute seule :
+   *  `room_id` peut revenir directement, soit qu'un salon existait deja
+   *  (`deja`), soit que l'autre vous avait deja invite et que le moteur a
+   *  accepte a votre place (`accepte`) plutot que d'ecrire une invitation en
+   *  sens inverse. */
+  mixInviter: (ref: string) =>
+    call<{ invite: boolean; deja?: boolean; accepte?: boolean; room_id?: number }>('/mix/invite', {
+      method: 'POST',
+      body: JSON.stringify({ a: ref }),
+    }),
+
+  /** Les invitations de mix en attente, dans les deux sens. */
+  mixInvites: () => call<{ recues: MixInvite[]; envoyees: MixInvite[] }>('/mix/invites'),
+
+  /** Accepter cree le salon — ou rend celui qui existe deja si vous vous
+   *  etes invites en meme temps. */
+  mixAccepter: (id: number) => call<{ room_id: number }>(`/mix/invite/${id}/accept`, { method: 'POST' }),
+
+  /** Refuser efface l'invitation, sans laisser de trace. */
+  mixRefuser: (id: number) => call<{ refuse: boolean }>(`/mix/invite/${id}/decline`, { method: 'POST' }),
+
+  /** Les salons actifs, avec ce qu'il y a de nouveau dans chacun. */
+  mixRooms: () => call<{ rooms: MixRoomResume[] }>('/mix/rooms'),
+
+  mixRoom: (roomId: number) =>
+    call<{ room_id: number; partenaire: Gen | null }>(`/mix/rooms/${roomId}`),
+
+  /** Le lot suivant du paquet commun du salon. */
+  mixNext: (roomId: number, limit = 12) =>
+    call<{ room_id: number; cards: Card[] }>(`/mix/rooms/${roomId}/next?limit=${limit}`),
+
+  /** Un verdict sur une carte du mix.
+   *
+   *  Meme regle que pour un son d'ami : « passer » ne compte pas dans le
+   *  gout, les trois autres verdicts comptent normalement — y compris dans
+   *  la bibliotheque personnelle sur « je garde ». */
+  mixEvent: (
+    roomId: number,
+    p: { track: Track; action: SwipeAction; msPlayed: number; previewMs: number },
+  ) =>
+    call<EventResult>(`/mix/rooms/${roomId}/event`, {
+      method: 'POST',
+      body: JSON.stringify({
+        track_id: p.track.id,
+        action: p.action,
+        ms_played: Math.round(p.msPlayed),
+        preview_ms: Math.round(p.previewMs),
+      }),
+    }),
+
+  /** Les titres sur lesquels vous avez tous les deux un verdict positif. */
+  mixMatches: (roomId: number) => call<{ matches: MixMatch[] }>(`/mix/rooms/${roomId}/matches`),
+
+  /** Marque le salon lu : ce qui suivra sera nouveau a partir de maintenant. */
+  mixMarquerLu: (roomId: number) => call<{ ok: boolean }>(`/mix/rooms/${roomId}/lu`, { method: 'PUT' }),
 };

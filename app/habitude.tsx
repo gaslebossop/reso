@@ -78,12 +78,26 @@ const REPONSES: Reponse[] = [
   },
 ];
 
-/** La reponse par defaut : **Familier**, pour tout le monde.
+/** La reponse par defaut : **Automatique**.
  *
- *  L'ecran reste visible pour qui veut monter le curseur, mais « Ouvrir le
- *  fil » fonctionne sans toucher — et ce que quelqu'un n'a pas choisi ne doit
- *  pas lui servir d'inconnu. */
-const DEFAUT = REPONSES[0].cle;
+ *  Elle etait sur « De temps en temps », donc sur `FAMILIER` — c'est-a-dire
+ *  zero. Or l'ecran s'ouvre deja coche et « Ouvrir le fil » marche sans qu'on
+ *  touche a rien : **tout le monde envoyait donc zero sans l'avoir choisi**.
+ *  Mesure en base le 2026-08-26 : 81 comptes sur 81 a `discovery = 0`, aucun
+ *  en automatique, dont 49 ecrits a la meme microseconde.
+ *
+ *  Ce zero n'est pas un reglage tiede, c'est un interrupteur : cote moteur il
+ *  ecrase le correcteur proportionnel — la piece qui fait vivre la file — et
+ *  annule le terme de bruit, soit un dixieme du score, pour tout le monde et
+ *  pour toujours. On demandait a quelqu'un qui n'a encore rien ecoute de
+ *  choisir « rien d'inconnu », et on l'y laissait par defaut.
+ *
+ *  Le defaut rend donc la main au moteur. Le filet du nouveau venu existe
+ *  deja cote serveur et fait exactement le travail qu'on croyait faire ici :
+ *  `Replay.prudent` ne sert aucun inconnu tant que le profil n'a pas prouve
+ *  un gout (`Tuning.EvenementsAvantExploration`). Il ne s'applique QUE sans
+ *  choix explicite — donc ce zero le desactivait aussi. */
+const DEFAUT = REPONSES[1].cle;
 
 export default function Habitude() {
   const insets = useSafeAreaInsets();
@@ -93,8 +107,10 @@ export default function Habitude() {
 
   // Une seule valeur animee pour tout l'ecran : la part de decouverte. La
   // bande et le libelle en decoulent, donc rien ne peut se desynchroniser.
-  // Elle demarre sur la reponse par defaut (Familier), pas sur un milieu.
-  const part = useSharedValue(REPONSES[0].part);
+  // Elle demarre sur la reponse par defaut — lue dans DEFAUT, jamais fixee a
+  // la main : les deux etaient ecrits separement, donc changer le defaut
+  // desynchronisait la bande de la case cochee.
+  const part = useSharedValue(REPONSES.find((r) => r.cle === DEFAUT)!.part);
 
   const repondre = useCallback(
     (r: Reponse) => {

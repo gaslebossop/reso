@@ -17,6 +17,41 @@ player.setResolveur(async (trackId) => (await prisme.refreshTrack(trackId)).prev
  * secondes, soit plus que le delai d'abandon du client. */
 const REFILL_AT = 6;
 
+/** Le premier lot est gros, les suivants sont courts. **Ce n'est pas le seuil
+ *  qui gouverne la reactivite du fil, c'est la taille du lot.**
+ *
+ *  Avec des lots de douze et un seuil a six, la file oscille entre six et
+ *  dix-huit cartes : le moteur n'est donc consulte **qu'une fois tous les
+ *  douze swipes**, et une carte peut attendre dix-huit swipes entre le moment
+ *  ou elle est classee et celui ou on la voit. C'est ce decalage qu'on ressent
+ *  comme « il n'a pas compris ce que je viens d'aimer » — le classement etait
+ *  juste, il datait.
+ *
+ *  Lots de quatre en regime etabli : la file oscille entre six et dix, le
+ *  moteur est consulte **tous les quatre swipes**, et rien n'attend plus de
+ *  dix cartes. Le premier lot reste a douze pour que l'ecran se remplisse
+ *  d'un seul aller-retour au demarrage — c'est le seul moment ou quelqu'un
+ *  attend devant un ecran vide.
+ *
+ *  Ce que ca coute, mesure le 2026-08-26 contre la production :
+ *
+ *  | lot | duree | appels Deezer | par carte |
+ *  |---|---|---|---|
+ *  | 12 | 1315-1648 ms | 12-15 | ~1,1 |
+ *  |  6 | 1057-1277 ms | 10-12 | ~1,8 |
+ *  |  4 |  959-1112 ms |  9-10 | ~2,4 |
+ *
+ *  Le cout par carte double, parce que construire le vivier (~300 candidats)
+ *  coute la meme chose qu'on en serve quatre ou douze. A l'echelle actuelle
+ *  c'est sans danger — on est a environ 1 % du plafond quotidien de Deezer, et
+ *  `Deezer.Espacement` borne de toute facon le debit a ~9 appels/s. **Ce qui
+ *  se reduit de moitie, c'est le nombre de cartes que la plateforme entiere
+ *  peut servir par seconde** : ~8/s avec des lots de douze, ~3,7/s avec des
+ *  lots de quatre. C'est un plafond de croissance, pas un cout d'aujourd'hui —
+ *  et c'est la seule ligne a remonter si le fil se met a ralentir a plusieurs. */
+const LOT_INITIAL = 12;
+const LOT_SUIVANT = 4;
+
 type State = {
   cards: Card[];
   loading: boolean;
@@ -28,7 +63,7 @@ type State = {
  * Le fil.
  *
  * Deux invariants tiennent l'experience :
- *  1. **jamais de file vide** — on recharge des qu'il reste quatre cartes, en
+ *  1. **jamais de file vide** — on recharge des qu'il reste six cartes, en
  *     tache de fond, pour que l'utilisateur ne voie aucun ecran d'attente ;
  *  2. **jamais de silence** — les extraits suivants sont prepares avant
  *     d'arriver a l'ecran.
@@ -78,7 +113,7 @@ export function useFeed(enabled: boolean) {
       }
       fetching.current = true;
       try {
-        const { cards } = await prisme.nextCards();
+        const { cards } = await prisme.nextCards(mode === 'replace' ? LOT_INITIAL : LOT_SUIVANT);
         // Aucun appel au lecteur ici. Une fonction de mise a jour d'etat doit
         // rester pure — React se reserve le droit de la rejouer — et le
         // prechargement etait de toute facon fait une seconde fois par l'effet

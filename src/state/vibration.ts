@@ -105,4 +105,16 @@ export const vibrer = {
   grave() {
     if (actif) void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
   },
+  /**
+   * Un match, dans un salon de mix : les deux ont aime ou garde le meme titre.
+   *
+   * Le pic de l'experience a deux — plus rare qu'un « je garde » du fil
+   * normal, et plus fort : une double confirmation vaut plus que la somme des
+   * deux. Meme intensite que `garde()` (le seul autre evenement qui produit
+   * un objet), volontairement distingue par son nom pour que l'appelant dise
+   * ce qu'il fete sans avoir a le commenter.
+   */
+  match() {
+    if (actif) void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  },
 };

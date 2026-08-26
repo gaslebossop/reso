@@ -12,8 +12,16 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, {
+  Easing,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 
-import { prisme } from '../../src/api/client';
+import { prisme, PrismeError } from '../../src/api/client';
 import { EnteteTitre, Feuille, LigneAction } from '../../src/components/Feuille';
 import type { ProfilSocial, Track } from '../../src/api/types';
 import { IconeChevron, IconeRetour } from '../../src/components/Icones';
@@ -22,7 +30,7 @@ import { Visage } from '../../src/components/Visage';
 import { chargerPlateforme, lienVers } from '../../src/state/plateforme';
 import { useAccount } from '../../src/state/useAccount';
 import { vibrer } from '../../src/state/vibration';
-import { chiffres, color, radius, space, type } from '../../src/theme/tokens';
+import { chiffres, color, motion, radius, space, type } from '../../src/theme/tokens';
 
 /**
  * Le profil public : ce que cette personne garde, ce qu'elle aime, qui la
@@ -150,6 +158,103 @@ export default function ProfilPublic() {
     if (r) setProfil((p) => (p ? { ...p, suivi: r.suivi, abonnes: r.abonnes } : p));
   }, [profil, monId]);
 
+  /**
+   * L'etat du mix avec cette personne : rien, un salon deja la, une
+   * invitation partie, ou une invitation recue.
+   *
+   * **C'est ce qui manquait**, signale le 2026-08-26 : le bouton ne portait
+   * qu'un etat local, remis a zero a chaque ouverture de l'ecran. On pouvait
+   * donc revoir « Mixer nos gouts » — et retenter d'inviter — quelqu'un qui
+   * avait deja un salon avec vous, ou qui vous avait deja invite. Le moteur
+   * est desormais idempotent sur ce chemin (voir `POST /mix/invite`), mais
+   * l'ecran doit encore le SAVOIR d'avance pour proposer le bon geste : ouvrir
+   * le salon, accepter l'invitation, ou en envoyer une.
+   */
+  type EtatMix =
+    | { genre: 'aucun' }
+    | { genre: 'salon'; roomId: number }
+    | { genre: 'envoyee' }
+    | { genre: 'recue'; inviteId: number };
+
+  const [etatMix, setEtatMix] = useState<EtatMix>({ genre: 'aucun' });
+  const [mixEtat, setMixEtat] = useState<'idle' | 'busy' | 'erreur'>('idle');
+  const [mixMessage, setMixMessage] = useState<string | null>(null);
+
+  const inviterAuMix = useCallback(async () => {
+    if (!profil) return;
+    vibrer.action();
+    setMixEtat('busy');
+    setMixMessage(null);
+    try {
+      const r = await prisme.mixInviter(profil.handle || profil.id);
+      setMixEtat('idle');
+      if (r.room_id) {
+        setEtatMix({ genre: 'salon', roomId: r.room_id });
+        setMixMessage(
+          r.accepte
+            ? `${profil.nom || 'Cette personne'} vous avait déjà invité : votre mix est prêt.`
+            : 'Vous mixez déjà ensemble.',
+        );
+      } else {
+        setEtatMix({ genre: 'envoyee' });
+        setMixMessage(`Invitation envoyée à ${profil.nom || 'cette personne'}.`);
+      }
+    } catch (e) {
+      setMixEtat('erreur');
+      setMixMessage(e instanceof PrismeError ? e.message : 'Impossible pour l’instant.');
+    }
+  }, [profil]);
+
+  const accepterLeMix = useCallback(async () => {
+    if (etatMix.genre !== 'recue') return;
+    vibrer.action();
+    setMixEtat('busy');
+    setMixMessage(null);
+    try {
+      const r = await prisme.mixAccepter(etatMix.inviteId);
+      setMixEtat('idle');
+      setEtatMix({ genre: 'salon', roomId: r.room_id });
+    } catch (e) {
+      setMixEtat('erreur');
+      setMixMessage(e instanceof PrismeError ? e.message : 'Impossible pour l’instant.');
+    }
+  }, [etatMix]);
+
+  /**
+   * L'aura du bouton de mix.
+   *
+   * Le bouton n'avait aucun retour visuel a l'appui — juste un texte qui
+   * change une fois la reponse revenue, sans rien entre les deux. Une bouffee
+   * qui nait du bouton et se dissout dit « c'est parti » **au moment ou on
+   * appuie**, avant meme que le reseau ait repondu — la meme regle que le
+   * cran du seuil dans le fil : le retour arrive au geste, pas a la reponse.
+   *
+   * `echelle` presse le bouton, `aura` fait naitre puis dissoudre une meme
+   * forme, plus grande, autour de lui — voir `mixAura` dans les styles, qui
+   * partage exactement les dimensions de `mixBouton` pour que la bouffee garde
+   * la forme du bouton en grandissant, au lieu d'un cercle plaque derriere une
+   * pilule.
+   */
+  const mixEchelle = useSharedValue(1);
+  const mixAura = useSharedValue(0);
+
+  const declencherAura = useCallback(() => {
+    mixEchelle.set(
+      withSequence(
+        withTiming(0.94, { duration: motion.press / 2 }),
+        withTiming(1, { duration: motion.state }),
+      ),
+    );
+    mixAura.set(0);
+    mixAura.set(withTiming(1, { duration: 520, easing: Easing.out(Easing.cubic) }));
+  }, [mixEchelle, mixAura]);
+
+  const mixBoutonStyle = useAnimatedStyle(() => ({ transform: [{ scale: mixEchelle.get() }] }));
+  const mixAuraStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(mixAura.get(), [0, 0.12, 1], [0, 0.6, 0]),
+    transform: [{ scale: interpolate(mixAura.get(), [0, 1], [1, 1.55]) }],
+  }));
+
   const cote = Math.floor((width - space.lg * 2 - GOUTTIERE) / 2);
 
   const ouvrir = useCallback((t: Track) => {
@@ -256,6 +361,53 @@ export default function ProfilPublic() {
   );
 
   const estMoi = monId !== null && profil !== null && profil.id === monId;
+
+  /**
+   * Ce compte fait-il partie de mes amis (suivi mutuel) ?
+   *
+   * **C'est ce qui manquait au bouton de mix** : il s'affichait sur n'importe
+   * quel profil, et le moteur le refusait a l'appui avec « on ne mixe qu'entre
+   * amis » — une regle correcte, mais decouverte trop tard. Un bouton qui
+   * n'aboutit qu'une fois sur deux se lit comme un bouton casse, pas comme une
+   * regle. Il ne s'affiche donc plus que la ou il marchera.
+   */
+  const [estAmi, setEstAmi] = useState(false);
+  useEffect(() => {
+    if (!profil || estMoi) return;
+    let vivant = true;
+    prisme
+      .amis()
+      .then((r) => {
+        if (vivant) setEstAmi(r.amis.some((a) => a.user_id === profil.id));
+      })
+      .catch(() => {
+        if (vivant) setEstAmi(false);
+      });
+    return () => {
+      vivant = false;
+    };
+  }, [profil, estMoi]);
+
+  // Le salon ou l'invitation deja en cours avec cette personne — voir
+  // `EtatMix` plus haut pour ce que ca corrige.
+  useEffect(() => {
+    if (!profil || estMoi || !estAmi) return;
+    let vivant = true;
+    Promise.all([prisme.mixRooms(), prisme.mixInvites()])
+      .then(([rooms, invites]) => {
+        if (!vivant) return;
+        const salon = rooms.rooms.find((r) => r.partenaire?.user_id === profil.id);
+        if (salon) return setEtatMix({ genre: 'salon', roomId: salon.room_id });
+        const recue = invites.recues.find((i) => i.gen.user_id === profil.id);
+        if (recue) return setEtatMix({ genre: 'recue', inviteId: recue.id });
+        const envoyee = invites.envoyees.some((i) => i.gen.user_id === profil.id);
+        setEtatMix(envoyee ? { genre: 'envoyee' } : { genre: 'aucun' });
+      })
+      .catch(() => {});
+    return () => {
+      vivant = false;
+    };
+  }, [profil, estMoi, estAmi]);
 
   // --- Affinite -------------------------------------------------------------
   const compte = useAccount();
@@ -417,6 +569,62 @@ export default function ProfilPublic() {
                   {profil.suivi ? 'Suivi' : 'Suivre'}
                 </Text>
               </Pressable>
+            ) : null}
+
+            {/* Un deuxieme fil, a deux. **N'existe qu'entre amis**, et ne
+                s'affiche donc que la ou il marchera : sur n'importe quel
+                profil, le moteur le refusait a l'appui, et un bouton qui
+                n'aboutit qu'une fois sur deux se lit comme casse. */}
+            {!estMoi && compte.connected && estAmi ? (
+              <View style={styles.mixBloc}>
+                <View style={styles.mixZone}>
+                  <Animated.View style={[styles.mixAura, mixAuraStyle]} pointerEvents="none" />
+                  <Animated.View style={mixBoutonStyle}>
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.mixBouton,
+                        mixEtat === 'busy' && styles.mixOccupe,
+                        pressed && styles.pale,
+                      ]}
+                      onPress={() => {
+                        declencherAura();
+                        if (etatMix.genre === 'salon') router.push(`/mix/${etatMix.roomId}`);
+                        else if (etatMix.genre === 'recue') void accepterLeMix();
+                        else if (etatMix.genre === 'aucun') void inviterAuMix();
+                        // 'envoyee' : rien a faire, c'est deja parti.
+                      }}
+                      disabled={mixEtat === 'busy' || etatMix.genre === 'envoyee'}
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        etatMix.genre === 'salon'
+                          ? 'Ouvrir votre mix'
+                          : etatMix.genre === 'recue'
+                            ? 'Accepter le mix'
+                            : 'Mixer nos goûts'
+                      }
+                    >
+                      {mixEtat === 'busy' ? (
+                        <ActivityIndicator color={color.mix} />
+                      ) : (
+                        <Text style={styles.mixBoutonTexte}>
+                          {etatMix.genre === 'salon'
+                            ? 'Ouvrir votre mix'
+                            : etatMix.genre === 'recue'
+                              ? 'Accepter le mix'
+                              : etatMix.genre === 'envoyee'
+                                ? 'Invitation envoyée'
+                                : 'Mixer nos goûts'}
+                        </Text>
+                      )}
+                    </Pressable>
+                  </Animated.View>
+                </View>
+                {mixMessage ? (
+                  <Text style={[styles.mixMessage, mixEtat === 'erreur' && styles.mixMessageErreur]}>
+                    {mixMessage}
+                  </Text>
+                ) : null}
+              </View>
             ) : null}
 
             {/* Le match ne se depasse plus en defilant.
@@ -792,6 +1000,37 @@ const styles = StyleSheet.create({
   },
   suivreTexte: { ...type.lead, fontWeight: '700', color: color.bg },
   suivreTexteActif: { color: color.textMuted, fontWeight: '500' },
+
+  mixBloc: { alignItems: 'center', marginTop: space.md, gap: space.xs },
+  // La zone reserve la place de l'aura (plus grande que le bouton) sans
+  // pousser ce qu'il y a en dessous : sa taille est fixe, celle du bouton a
+  // son maximum d'echelle.
+  mixZone: { width: 220 * 1.55, height: 52 * 1.55, alignItems: 'center', justifyContent: 'center' },
+  mixBouton: {
+    width: 220,
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: space.xl,
+    borderRadius: radius.full,
+    borderWidth: 1.5,
+    borderColor: color.mix,
+    backgroundColor: color.mixDim,
+  },
+  // Meme forme et memes dimensions que `mixBouton` : c'est ce qui fait grandir
+  // la bouffee dans le prolongement du bouton plutot qu'un cercle plaque
+  // derriere une pilule.
+  mixAura: {
+    position: 'absolute',
+    width: 220,
+    height: 52,
+    borderRadius: radius.full,
+    backgroundColor: color.mix,
+  },
+  mixOccupe: { opacity: 0.7 },
+  mixBoutonTexte: { ...type.lead, fontWeight: '700', color: color.mix },
+  mixMessage: { ...type.label, fontSize: 13, lineHeight: 18, color: color.textFaint, textAlign: 'center' },
+  mixMessageErreur: { color: color.alert },
 
   section: { marginTop: space.xl, paddingHorizontal: space.lg },
   sectionTitre: { ...type.title, fontSize: 20, lineHeight: 26, color: color.text },

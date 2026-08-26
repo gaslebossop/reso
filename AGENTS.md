@@ -1459,3 +1459,81 @@ l'onglet Prisme, sinon un appareil anonyme n'aurait aucun moyen de recommencer.
 Dans Expo Go, il n'y a pas de « vider les données » par projet : la seule
 alternative au bouton est de réinstaller Expo Go, ce qui efface *tous* les
 projets. Passer par l'app est donc la bonne voie.
+
+## Une case pré-cochée est une réponse, et elle part comme telle
+
+Corrigé le 2026-08-26, après « le fil n'est pas à la hauteur ».
+
+`app/habitude.tsx` pré-cochait « De temps en temps », dont la valeur est
+`FAMILIER = 0`, et l'écran fonctionne **sans qu'on y touche** — « Ouvrir le
+fil » est actif dès l'arrivée. Personne n'avait donc à choisir quoi que ce
+soit pour que `PUT /prefs { discovery: 0 }` parte. Mesure en base ce jour-là :
+**81 comptes sur 81 à zéro, aucun en automatique**, dont 49 écrits à la même
+microseconde.
+
+Côté moteur ce zéro n'est pas un réglage tiède, c'est un interrupteur : il
+annule le terme de bruit du score, il écrase le correcteur proportionnel, et
+il désactive même le filet du nouveau venu qu'il croyait imiter (la branche
+« choix explicite » saute `Replay.prudent`). Voir `prisme/README.md`, « Le
+jour où le classement s'est débranché sans rien casser ».
+
+Le défaut est désormais **Automatique**. Deux règles qui en sortent :
+
+- **Ne jamais pré-cocher une réponse qui restreint le moteur.** Un écran de
+  démarrage recueille surtout des non-réponses ; ce que le défaut envoie doit
+  donc être ce qu'on servirait à quelqu'un dont on ne sait rien — et pour la
+  découverte, c'est « laisse le moteur décider », pas « rien d'inconnu ».
+- **La bande animée lit `DEFAUT`**, elle ne répète plus l'indice à la main.
+  Les deux étaient écrits séparément (`REPONSES[0].part` d'un côté,
+  `REPONSES[0].cle` de l'autre) : changer le défaut désynchronisait la barre
+  de la case cochée, et rien ne l'aurait signalé.
+
+**Piège de la même famille, côté serveur, à ne pas reproduire ici :** l'app
+envoie `{"discovery": null}` pour « Automatique ». Ce `null` était décodé en
+`Double.NaN` et empoisonnait le profil, tandis que la réponse et `GET /prefs`
+rendaient tous deux `null` — l'écran confirmait donc le réglage choisi
+pendant que le classement était débranché. Corrigé côté moteur, mais la leçon
+vaut pour l'app : **une valeur que l'écran affiche comme acceptée n'est pas
+une preuve qu'elle a été stockée telle quelle.**
+
+## Le fil consultait le moteur une fois tous les douze swipes
+
+Corrigé le 2026-08-26, sur demande : *« fais que ça s'actualise tous les 4
+swipes »*.
+
+**Ce n'est pas le seuil de rechargement qui gouverne la réactivité, c'est la
+taille du lot.** Avec des lots de douze et `REFILL_AT = 6`, la file oscille
+entre six et dix-huit cartes : le moteur n'est donc consulté qu'une fois tous
+les douze swipes, et une carte peut attendre **dix-huit swipes** entre le
+moment où elle est classée et celui où on la voit. C'est ce décalage qu'on
+ressent comme « il n'a pas compris ce que je viens d'aimer » — le classement
+était juste, il datait.
+
+Deux tailles désormais : `LOT_INITIAL = 12` au démarrage (l'écran se remplit
+d'un seul aller-retour, c'est le seul moment où quelqu'un attend devant du
+vide) et `LOT_SUIVANT = 4` ensuite. La file oscille alors entre six et dix, le
+moteur est consulté tous les quatre swipes, et rien n'attend plus de dix
+cartes.
+
+**`REFILL_AT` reste à 6, et ne doit pas redescendre à 4** : c'est une durée
+déguisée, et quatre cartes valent moins que le délai d'abandon du client.
+
+Ce que ça coûte, mesuré contre la production ce jour-là :
+
+| lot | durée | appels Deezer | par carte |
+|---|---|---|---|
+| 12 | 1315-1648 ms | 12-15 | ~1,1 |
+| 6 | 1057-1277 ms | 10-12 | ~1,8 |
+| 4 | 959-1112 ms | 9-10 | ~2,4 |
+
+Le coût par carte double, parce que **construire le vivier (~300 candidats)
+coûte la même chose qu'on en serve quatre ou douze**. À l'échelle actuelle
+c'est sans danger : on est à environ 1 % du plafond quotidien de Deezer, et
+`Deezer.Espacement` borne de toute façon le débit à ~9 appels/s. Ce qui se
+réduit de moitié, c'est le nombre de cartes que **la plateforme entière** peut
+servir par seconde : ~8/s avec des lots de douze, ~3,7/s avec des lots de
+quatre.
+
+C'est un plafond de croissance, pas un coût d'aujourd'hui — et c'est la
+première ligne à remonter si le fil se met à ralentir à plusieurs. `npm run
+bench` reste vert sur les quatre réseaux.

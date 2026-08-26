@@ -422,3 +422,42 @@ export type Notifs = {
   nouvelles: number;
   vues_at: number | null;
 };
+
+/**
+ * Une invitation a mixer les gouts, en attente.
+ *
+ * `gen` porte celui qui a envoye si c'est une invitation recue, celui qui la
+ * recevra si c'est une envoyee — le moteur ne rend jamais les deux cotes,
+ * l'ecran sait deja lequel il affiche.
+ */
+export type MixInvite = {
+  id: number;
+  gen: Gen;
+  /** Millisecondes epoch. */
+  at: number;
+};
+
+/**
+ * Un salon de mix, tel qu'il apparait dans la liste.
+ *
+ * `partenaire` peut etre nul si ce compte a disparu depuis — un salon reste
+ * ouvert, il ne se ferme jamais tout seul.
+ */
+export type MixRoomResume = {
+  room_id: number;
+  partenaire: Gen | null;
+  matches: number;
+  matches_nouveaux: number;
+};
+
+/**
+ * Un titre sur lequel vous avez tous les deux un verdict positif.
+ *
+ * `nouveau` dit si ce match est arrive apres la derniere fois que le salon a
+ * ete ouvert — c'est lui qui pilote l'effet a l'ouverture.
+ */
+export type MixMatch = {
+  track: Track;
+  at: number;
+  nouveau: boolean;
+};

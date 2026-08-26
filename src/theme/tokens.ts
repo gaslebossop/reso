@@ -52,6 +52,18 @@ export const color = {
 
   hairline: 'rgba(255, 255, 255, 0.08)',
   scrim: 'rgba(0, 0, 0, 0.55)',
+
+  /**
+   * Le mix a deux.
+   *
+   * Ni l'accent (deja « j'aime »), ni la sauvegarde (deja « je garde »), ni le
+   * vert du badge verifie : un violet chaud, qui n'existe nulle part ailleurs
+   * dans l'app. C'est ce qui permet a l'oeil de savoir, avant meme de lire un
+   * mot, qu'on n'est plus dans le fil normal — un deuxieme espace, pas une
+   * variante du premier.
+   */
+  mix: '#B385F5',
+  mixDim: 'rgba(179, 133, 245, 0.16)',
 } as const;
 
 export const space = {

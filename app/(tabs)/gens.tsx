@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { prisme } from '../../src/api/client';
 import { fansLisibles } from '../../src/api/titre';
-import type { Artist, Gen, ProfilSocial } from '../../src/api/types';
+import type { Artist, Gen, MixInvite, MixRoomResume, ProfilSocial } from '../../src/api/types';
 import { AccountGate } from '../../src/components/AccountGate';
 import { NomVerifie } from '../../src/components/NomVerifie';
 import { Visage } from '../../src/components/Visage';
@@ -132,6 +132,13 @@ export default function GensScreen() {
    */
   const [artistesSuivis, setArtistesSuivis] = useState<Artist[] | null>(null);
 
+  /** Les invitations de mix recues, en attente. */
+  const [mixInvites, setMixInvites] = useState<MixInvite[]>([]);
+  /** Les salons actifs. */
+  const [mixRooms, setMixRooms] = useState<MixRoomResume[]>([]);
+  /** Le temps d'un aller-retour, pour ne pas pouvoir taper accepter deux fois. */
+  const [mixOccupe, setMixOccupe] = useState<number | null>(null);
+
   // Le minuteur de pause vit dans une reference : il survit aux rendus, et
   // un caractere tape vite annule la recherche du caractere d'avant.
   const minuteur = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -225,6 +232,13 @@ export default function GensScreen() {
       // La pastille doit etre juste des l'arrivee, pas apres un aller-retour.
       void rafraichirNotifs();
 
+      prisme.mixInvites().then((r) => {
+        if (vivant) setMixInvites(r.recues);
+      }).catch(() => {});
+      prisme.mixRooms().then((r) => {
+        if (vivant) setMixRooms(r.rooms);
+      }).catch(() => {});
+
       return () => {
         vivant = false;
       };
@@ -244,6 +258,39 @@ export default function GensScreen() {
     (id: string) => {
       vibrer.choix();
       router.push(`/gens/${encodeURIComponent(id)}`);
+    },
+    [router],
+  );
+
+  const accepterMix = useCallback(
+    async (invite: MixInvite) => {
+      vibrer.action();
+      setMixOccupe(invite.id);
+      try {
+        const r = await prisme.mixAccepter(invite.id);
+        setMixInvites((xs) => xs.filter((i) => i.id !== invite.id));
+        router.push(`/mix/${r.room_id}`);
+      } catch {
+        // Le geste reste tapable : rien n'a bouge, on ne fait pas semblant.
+      } finally {
+        setMixOccupe(null);
+      }
+    },
+    [router],
+  );
+
+  const refuserMix = useCallback(async (invite: MixInvite) => {
+    vibrer.choix();
+    setMixOccupe(invite.id);
+    setMixInvites((xs) => xs.filter((i) => i.id !== invite.id));
+    await prisme.mixRefuser(invite.id).catch(() => {});
+    setMixOccupe(null);
+  }, []);
+
+  const ouvrirMix = useCallback(
+    (roomId: number) => {
+      vibrer.choix();
+      router.push(`/mix/${roomId}`);
     },
     [router],
   );
@@ -474,6 +521,87 @@ export default function GensScreen() {
         </View>
       ) : null}
 
+      {/* Le mix a deux : les invitations d'abord (elles demandent une
+          reponse), le rail des salons ensuite. Meme regle que « Tu suis » :
+          invisible pendant une recherche. */}
+      {!enRecherche && mixInvites.length > 0 ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitre}>Invitations à mixer</Text>
+          <View style={styles.liste}>
+            {mixInvites.map((invite) => (
+              <View key={invite.id} style={styles.mixInvite}>
+                <Visage uri={invite.gen.avatar} taille={44} />
+                <View style={styles.rangTexte}>
+                  <NomVerifie
+                    nom={invite.gen.nom || 'Sans nom'}
+                    verifie={invite.gen.verifie}
+                    style={styles.rangNom}
+                  />
+                  <Text style={styles.sous}>propose un mix</Text>
+                </View>
+                {mixOccupe === invite.id ? (
+                  <ActivityIndicator color={color.mix} />
+                ) : (
+                  <View style={styles.mixActions}>
+                    <Pressable
+                      style={styles.mixRefuser}
+                      onPress={() => refuserMix(invite)}
+                      hitSlop={10}
+                      accessibilityRole="button"
+                      accessibilityLabel="Refuser"
+                    >
+                      <Text style={styles.mixRefuserTexte}>Refuser</Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.mixAccepter}
+                      onPress={() => accepterMix(invite)}
+                      hitSlop={10}
+                      accessibilityRole="button"
+                      accessibilityLabel="Accepter"
+                    >
+                      <Text style={styles.mixAccepterTexte}>Accepter</Text>
+                    </Pressable>
+                  </View>
+                )}
+              </View>
+            ))}
+          </View>
+        </View>
+      ) : null}
+
+      {!enRecherche && mixRooms.length > 0 ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitre}>Tes mix</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.rangee}
+          >
+            {mixRooms.map((r) => (
+              <Pressable
+                key={r.room_id}
+                style={({ pressed }) => [styles.tete, pressed && styles.pale]}
+                onPress={() => ouvrirMix(r.room_id)}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  r.matches_nouveaux > 0
+                    ? `Mix avec ${r.partenaire?.nom || 'un ami'}, ${r.matches_nouveaux} nouveaux matchs`
+                    : `Mix avec ${r.partenaire?.nom || 'un ami'}`
+                }
+              >
+                <View>
+                  <Visage uri={r.partenaire?.avatar} taille={56} style={styles.mixVisage} />
+                  {r.matches_nouveaux > 0 ? <View style={styles.mixBadge} /> : null}
+                </View>
+                <Text style={styles.tetePrenom} numberOfLines={1}>
+                  {(r.partenaire?.nom || r.partenaire?.handle || '?').split(' ')[0]}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      ) : null}
+
       {/* Les visages de ceux qu'on suit, puis les portraits des artistes.
           Ils ne s'affichent pas pendant une recherche : deux listes de gens
           l'une sous l'autre demanderaient de lire le titre pour savoir
@@ -694,6 +822,40 @@ const styles = StyleSheet.create({
   tete: { width: 56, alignItems: 'center', gap: space.xs },
   tetePortrait: { width: 56, height: 56, borderRadius: radius.sm, backgroundColor: color.bgElevated },
   tetePrenom: { ...type.caption, fontSize: 13, lineHeight: 18, color: color.textFaint },
+
+  // -- Le mix a deux -------------------------------------------------------
+  mixInvite: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    minHeight: 68,
+    paddingVertical: space.sm,
+  },
+  mixActions: { flexDirection: 'row', gap: space.sm },
+  mixRefuser: { minHeight: 36, justifyContent: 'center', paddingHorizontal: space.sm },
+  mixRefuserTexte: { ...type.label, fontSize: 13, color: color.textFaint },
+  mixAccepter: {
+    minHeight: 36,
+    justifyContent: 'center',
+    paddingHorizontal: space.md,
+    borderRadius: radius.full,
+    backgroundColor: color.mixDim,
+    borderWidth: 1,
+    borderColor: color.mix,
+  },
+  mixAccepterTexte: { ...type.label, fontSize: 13, color: color.mix, fontWeight: '700' },
+  mixVisage: { borderWidth: 1.5, borderColor: color.mix },
+  mixBadge: {
+    position: 'absolute',
+    top: -1,
+    right: -1,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: color.mix,
+    borderWidth: 2,
+    borderColor: color.bg,
+  },
 
 
   // -- Bascule ------------------------------------------------------------
